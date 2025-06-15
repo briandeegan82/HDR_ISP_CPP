@@ -1,0 +1,81 @@
+# Build directories
+build/
+out/
+cmake-build-*/
+
+# IDE files
+.vs/
+.vscode/
+*.swp
+*.swo
+*~
+.idea/
+*.user
+*.suo
+*.sln.docstates
+
+# Compiled Object files
+*.slo
+*.lo
+*.o
+*.obj
+
+# Precompiled Headers
+*.gch
+*.pch
+
+# Compiled Dynamic libraries
+*.so
+*.dylib
+*.dll
+
+# Compiled Static libraries
+*.lai
+*.la
+*.a
+*.lib
+
+# Executables
+*.exe
+*.out
+*.app
+
+# CMake generated files
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+Makefile
+*.cmake
+
+# Output directories
+out_frames/
+in_frames/
+
+# Debug files
+*.dSYM/
+*.pdb
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Project specific
+*.raw
+*.yuv
+*.npy
+*.yaml
+*.yml
+!config/*.yml
+!config/*.yaml
+*.png
+*.py
+*.pyc
+*.c
+
+# Log files
+*.log 
