@@ -1,6 +1,7 @@
 #include "black_level_correction.hpp"
 #include <chrono>
 #include <iostream>
+#include <filesystem>
 
 BlackLevelCorrection::BlackLevelCorrection(const cv::Mat& img, const YAML::Node& sensor_info, const YAML::Node& parm_blc)
     : raw_(img)
@@ -25,6 +26,17 @@ cv::Mat BlackLevelCorrection::execute() {
     std::chrono::duration<double> duration = end - start;
     std::cout << "Black Level Correction execution time: " << duration.count() << " seconds" << std::endl;
 
+    if (is_save_) {
+        std::filesystem::create_directories("out_frames/intermediate");
+        std::string output_path = "out_frames/intermediate/Out_black_level_correction_" + 
+                                 std::to_string(result.cols) + "x" + std::to_string(result.rows) + ".png";
+        
+        // Convert to 8-bit for saving
+        cv::Mat save_img;
+        result.convertTo(save_img, CV_8U, 255.0 / ((1 << bit_depth_) - 1));
+        cv::imwrite(output_path, save_img);
+    }
+
     return result;
 }
 
@@ -39,6 +51,15 @@ cv::Mat BlackLevelCorrection::apply_blc_parameters() {
     double gr_sat = parm_blc_["gr_sat"].as<double>();
     double gb_sat = parm_blc_["gb_sat"].as<double>();
     double b_sat = parm_blc_["b_sat"].as<double>();
+
+    std::cout << "Black Level Correction Parameters:" << std::endl;
+    std::cout << "  R offset: " << r_offset << ", saturation: " << r_sat << std::endl;
+    std::cout << "  GR offset: " << gr_offset << ", saturation: " << gr_sat << std::endl;
+    std::cout << "  GB offset: " << gb_offset << ", saturation: " << gb_sat << std::endl;
+    std::cout << "  B offset: " << b_offset << ", saturation: " << b_sat << std::endl;
+    std::cout << "  Bit depth: " << bit_depth_ << std::endl;
+    std::cout << "  Bayer pattern: " << bayer_pattern_ << std::endl;
+    std::cout << "  Linearize: " << (is_linearize_ ? "true" : "false") << std::endl;
 
     // Convert to float32 for processing
     cv::Mat raw;
@@ -198,9 +219,20 @@ cv::Mat BlackLevelCorrection::apply_blc_parameters() {
         }
     }
 
-    // Clip values and convert back to original type
+    // Convert back to 16-bit
     cv::Mat result;
-    cv::threshold(raw, raw, 0, (1 << bit_depth_) - 1, cv::THRESH_TRUNC);
-    raw.convertTo(result, raw_.type());
+    raw.convertTo(result, CV_16U);
+
+    if (is_save_) {
+        std::filesystem::create_directories("out_frames/intermediate");
+        std::string output_path = "out_frames/intermediate/Out_black_level_correction_" + 
+                                 std::to_string(result.cols) + "x" + std::to_string(result.rows) + ".png";
+        
+        // Convert to 8-bit for saving
+        cv::Mat save_img;
+        result.convertTo(save_img, CV_8U, 255.0 / ((1 << bit_depth_) - 1));
+        cv::imwrite(output_path, save_img);
+    }
+
     return result;
 } 

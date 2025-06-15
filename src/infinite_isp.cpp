@@ -40,19 +40,22 @@ InfiniteISP::InfiniteISP(const std::string& data_path, const std::string& config
 
 void InfiniteISP::load_config(const std::string& config_path) {
     try {
+        std::cout << "line 43" << std::endl;
         config_ = YAML::LoadFile(config_path);
-
+        std::cout << "line 44" << std::endl;
         // Extract workspace info
-        platform_ = config_["platform"].as<std::string>();
         raw_file_ = config_["platform"]["filename"].as<std::string>();
         render_3a_ = config_["platform"]["render_3a"].as<bool>();
-
+        std::cout << "line 47" << std::endl;
         // Extract basic sensor info
         sensor_info_.width = config_["sensor_info"]["width"].as<int>();
+        std::cout << "line 54" << std::endl;
         sensor_info_.height = config_["sensor_info"]["height"].as<int>();
+        std::cout << "line 56" << std::endl;
         sensor_info_.bit_depth = config_["sensor_info"]["bit_depth"].as<int>();
+        std::cout << "line 58" << std::endl;
         sensor_info_.bayer_pattern = config_["sensor_info"]["bayer_pattern"].as<std::string>();
-
+        std::cout << "line 55" << std::endl;
         // Get ISP module parameters
         parm_dpc_ = config_["dead_pixel_correction"];
         parm_cmpd_ = config_["companding"];
@@ -77,7 +80,7 @@ void InfiniteISP::load_config(const std::string& config_path) {
         parm_sca_ = config_["scale"];
         parm_cro_ = config_["crop"];
         parm_yuv_ = config_["yuv_conversion_format"];
-
+        std::cout << "line 79" << std::endl;
         config_["platform"]["rgb_output"] = parm_rgb_["is_enable"].as<bool>();
     }
     catch (const std::exception& e) {
@@ -108,12 +111,23 @@ void InfiniteISP::load_raw() {
         }
         else {
             // Direct loading for smaller files
-            if (sensor_info_.bit_depth > 8) {
-                raw_ = cv::imread(raw_path, cv::IMREAD_UNCHANGED);
+            std::ifstream file(raw_path, std::ios::binary);
+            if (!file) {
+                throw std::runtime_error("Failed to open raw file: " + raw_path);
             }
-            else {
-                raw_ = cv::imread(raw_path, cv::IMREAD_GRAYSCALE);
-                raw_.convertTo(raw_, CV_16UC1);
+
+            // Calculate expected file size
+            int bytes_per_pixel = (sensor_info_.bit_depth + 7) / 8;
+            size_t expected_size = sensor_info_.width * sensor_info_.height * bytes_per_pixel;
+            
+            // Create matrix to hold raw data
+            raw_ = cv::Mat(sensor_info_.height, sensor_info_.width, CV_16UC1);
+            
+            // Read raw data
+            file.read(reinterpret_cast<char*>(raw_.data), expected_size);
+            
+            if (!file) {
+                throw std::runtime_error("Error reading raw file: " + raw_path);
             }
         }
     }
@@ -135,6 +149,15 @@ void InfiniteISP::load_raw() {
         // For other formats, use OpenCV
         raw_ = cv::imread(raw_path, cv::IMREAD_UNCHANGED);
     }
+
+    std::cout << "--------------------------------------------------" << std::endl;
+    std::cout << "Loading RAW Image Done......" << std::endl;
+    std::cout << "Filename: " << raw_file_ << std::endl;
+    std::cout << "Image size: " << raw_.cols << "x" << raw_.rows << std::endl;
+    std::cout << "Image type: " << raw_.type() << " (CV_8U=" << CV_8U << ", CV_16U=" << CV_16U << ", CV_32F=" << CV_32F << ")" << std::endl;
+    std::cout << "Image empty: " << (raw_.empty() ? "true" : "false") << std::endl;
+    std::cout << "Image channels: " << raw_.channels() << std::endl;
+    std::cout << "--------------------------------------------------" << std::endl;
 }
 
 cv::Mat InfiniteISP::run_pipeline(bool visualize_output, bool save_intermediate) {
@@ -423,9 +446,6 @@ void InfiniteISP::execute(const std::string& img_path, bool save_intermediate) {
 
     load_raw();
 
-    std::cout << std::string(50, '-') << "\nLoading RAW Image Done......\n";
-    std::cout << "Filename: " << in_file_ << std::endl;
-
     auto start = std::chrono::high_resolution_clock::now();
 
     // Generate timestamp for output filename
@@ -449,8 +469,6 @@ void InfiniteISP::execute(const std::string& img_path, bool save_intermediate) {
     fs::path output_path = output_dir / (out_file_ + timestamp + ".png");
     cv::imwrite(output_path.string(), final_img);
     std::cout << "Final output saved to: " << output_path << std::endl;
-
-    std::cout << std::string(50, '-') << "\n";
 
     auto end = std::chrono::high_resolution_clock::now();
     std::chrono::duration<double> elapsed = end - start;
