@@ -3,6 +3,7 @@
 #include <opencv2/opencv.hpp>
 #include <string>
 #include <array>
+#include <yaml-cpp/yaml.h>
 
 class AutoWhiteBalance {
 public:

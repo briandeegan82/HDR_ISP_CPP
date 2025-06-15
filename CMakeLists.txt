@@ -1,4 +1,8 @@
 cmake_minimum_required(VERSION 3.10)
+
+# Add vcpkg toolchain file
+set(CMAKE_TOOLCHAIN_FILE "C:/vcpkg/scripts/buildsystems/vcpkg.cmake" CACHE STRING "Vcpkg toolchain file")
+
 project(HDR_ISP_CPP)
 
 # Set C++ standard
@@ -27,19 +31,19 @@ include_directories(
 # Add source directory
 add_subdirectory(src)
 
-# Create the main library
-add_library(hdr_isp_common
-    src/common/image_processing.cpp
-    src/common/image_processing.hpp
-)
+# Create executable
+add_executable(hdr_isp_pipeline src/main.cpp)
 
-# Link dependencies to the main library
-target_link_libraries(hdr_isp_common
-    PUBLIC
+# Link dependencies to the executable
+target_link_libraries(hdr_isp_pipeline
+    PRIVATE
+        common
+        infinite_isp
+        isp_modules
         ${OpenCV_LIBS}
         Eigen3::Eigen
         ${LibRaw_LIBRARIES}
-        yaml-cpp
-        ${FFTW3_LIBRARIES}
+        yaml-cpp::yaml-cpp
+        FFTW3::fftw3
         ${GSL_LIBRARIES}
 ) 

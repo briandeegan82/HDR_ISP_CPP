@@ -17,10 +17,10 @@ private:
     void get_scaling_params();
     void save();
 
-    cv::Mat img_;
+    cv::Mat& img_;
     const YAML::Node& platform_;
     const YAML::Node& sensor_info_;
-    const YAML::Node& parm_sca_;
+    YAML::Node parm_sca_;  // Non-const copy to allow modification
     bool enable_;
     bool is_save_;
     int conv_std_;

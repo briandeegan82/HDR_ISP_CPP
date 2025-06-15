@@ -7,7 +7,7 @@ BayerNoiseReduction::BayerNoiseReduction(const cv::Mat& img, const YAML::Node& s
     , sensor_info_(sensor_info)
     , parm_bnr_(parm_bnr)
     , enable_(parm_bnr["is_enable"].as<bool>())
-    , bit_depth_(sensor_info["hdr_bit_depth"].as<int>())
+    , bit_depth_(sensor_info["bit_depth"].as<int>())
     , bayer_pattern_(sensor_info["bayer_pattern"].as<std::string>())
     , width_(sensor_info["width"].as<int>())
     , height_(sensor_info["height"].as<int>())
@@ -30,125 +30,87 @@ cv::Mat BayerNoiseReduction::execute() {
 }
 
 cv::Mat BayerNoiseReduction::apply_bnr() {
-    // Convert to float32 and normalize
-    cv::Mat in_img;
-    raw_.convertTo(in_img, CV_32F);
-    if (in_img.at<float>(0, 0) > 1.0f) {
-        in_img /= (1 << bit_depth_) - 1;
+    cv::Mat r_channel, b_channel;
+    extract_channels(raw_, r_channel, b_channel);
+    cv::Mat g_channel = interpolate_green_channel(raw_);
+
+    // Apply bilateral filter to each channel
+    int d = parm_bnr_["d"].as<int>();
+    double sigmaColor = parm_bnr_["sigma_color"].as<double>();
+    double sigmaSpace = parm_bnr_["sigma_space"].as<double>();
+
+    cv::Mat filtered_r = bilateral_filter(r_channel, d, sigmaColor, sigmaSpace);
+    cv::Mat filtered_g = bilateral_filter(g_channel, d, sigmaColor, sigmaSpace);
+    cv::Mat filtered_b = bilateral_filter(b_channel, d, sigmaColor, sigmaSpace);
+
+    cv::Mat output;
+    combine_channels(filtered_r, filtered_g, filtered_b, output);
+
+    if (is_save_) {
+        std::string filename = "out_frames/intermediate/Out_bnr_" + std::to_string(width_) + "x" + std::to_string(height_) + ".png";
+        cv::imwrite(filename, output);
     }
 
-    // Extract R and B channels
-    cv::Mat in_img_r, in_img_b;
-    extract_channels(in_img, in_img_r, in_img_b);
-
-    // Interpolate green channel
-    cv::Mat interp_g = interpolate_green_channel(in_img);
-
-    // Extract guide image at R and B positions
-    cv::Mat guide_r, guide_b;
-    if (bayer_pattern_ == "rggb") {
-        guide_r = interp_g(cv::Rect(0, 0, width_/2, height_/2));
-        guide_b = interp_g(cv::Rect(1, 1, width_/2, height_/2));
-    } else if (bayer_pattern_ == "bggr") {
-        guide_r = interp_g(cv::Rect(1, 1, width_/2, height_/2));
-        guide_b = interp_g(cv::Rect(0, 0, width_/2, height_/2));
-    } else if (bayer_pattern_ == "grbg") {
-        guide_r = interp_g(cv::Rect(1, 0, width_/2, height_/2));
-        guide_b = interp_g(cv::Rect(0, 1, width_/2, height_/2));
-    } else if (bayer_pattern_ == "gbrg") {
-        guide_r = interp_g(cv::Rect(0, 1, width_/2, height_/2));
-        guide_b = interp_g(cv::Rect(1, 0, width_/2, height_/2));
-    }
-
-    // Get filter parameters
-    int filt_size_g = parm_bnr_["filter_window"].as<int>();
-    int filt_size_r = (filt_size_g + 1) / 2;
-    int filt_size_b = (filt_size_g + 1) / 2;
-
-    // Apply joint bilateral filter
-    cv::Mat out_img_r = fast_joint_bilateral_filter(
-        in_img_r, guide_r, filt_size_r,
-        parm_bnr_["r_std_dev_r"].as<double>(),
-        parm_bnr_["r_std_dev_s"].as<double>()
-    );
-
-    cv::Mat out_img_g = fast_joint_bilateral_filter(
-        interp_g, interp_g, filt_size_g,
-        parm_bnr_["g_std_dev_r"].as<double>(),
-        parm_bnr_["g_std_dev_s"].as<double>()
-    );
-
-    cv::Mat out_img_b = fast_joint_bilateral_filter(
-        in_img_b, guide_b, filt_size_b,
-        parm_bnr_["b_std_dev_r"].as<double>(),
-        parm_bnr_["b_std_dev_s"].as<double>()
-    );
-
-    // Combine channels
-    cv::Mat bnr_out_img;
-    combine_channels(out_img_r, out_img_g, out_img_b, bnr_out_img);
-
-    // Convert back to original bit depth
-    cv::Mat result;
-    bnr_out_img.convertTo(result, CV_32F, (1 << bit_depth_) - 1);
-    return result;
+    return output;
 }
 
 void BayerNoiseReduction::extract_channels(const cv::Mat& img, cv::Mat& r_channel, cv::Mat& b_channel) {
-    if (bayer_pattern_ == "rggb") {
-        r_channel = img(cv::Rect(0, 0, width_/2, height_/2));
-        b_channel = img(cv::Rect(1, 1, width_/2, height_/2));
-    } else if (bayer_pattern_ == "bggr") {
-        r_channel = img(cv::Rect(1, 1, width_/2, height_/2));
-        b_channel = img(cv::Rect(0, 0, width_/2, height_/2));
-    } else if (bayer_pattern_ == "grbg") {
-        r_channel = img(cv::Rect(1, 0, width_/2, height_/2));
-        b_channel = img(cv::Rect(0, 1, width_/2, height_/2));
-    } else if (bayer_pattern_ == "gbrg") {
-        r_channel = img(cv::Rect(0, 1, width_/2, height_/2));
-        b_channel = img(cv::Rect(1, 0, width_/2, height_/2));
+    r_channel = cv::Mat::zeros(height_, width_, CV_8UC1);
+    b_channel = cv::Mat::zeros(height_, width_, CV_8UC1);
+
+    for (int y = 0; y < height_; y++) {
+        for (int x = 0; x < width_; x++) {
+            if (bayer_pattern_ == "RGGB") {
+                if (y % 2 == 0 && x % 2 == 0) {
+                    r_channel.at<uchar>(y, x) = img.at<uchar>(y, x);
+                } else if (y % 2 == 1 && x % 2 == 1) {
+                    b_channel.at<uchar>(y, x) = img.at<uchar>(y, x);
+                }
+            }
+        }
     }
 }
 
 void BayerNoiseReduction::combine_channels(const cv::Mat& r_channel, const cv::Mat& g_channel, const cv::Mat& b_channel, cv::Mat& output) {
-    output = g_channel.clone();
-    
-    if (bayer_pattern_ == "rggb") {
-        r_channel.copyTo(output(cv::Rect(0, 0, width_/2, height_/2)));
-        b_channel.copyTo(output(cv::Rect(1, 1, width_/2, height_/2)));
-    } else if (bayer_pattern_ == "bggr") {
-        r_channel.copyTo(output(cv::Rect(1, 1, width_/2, height_/2)));
-        b_channel.copyTo(output(cv::Rect(0, 0, width_/2, height_/2)));
-    } else if (bayer_pattern_ == "grbg") {
-        r_channel.copyTo(output(cv::Rect(1, 0, width_/2, height_/2)));
-        b_channel.copyTo(output(cv::Rect(0, 1, width_/2, height_/2)));
-    } else if (bayer_pattern_ == "gbrg") {
-        r_channel.copyTo(output(cv::Rect(0, 1, width_/2, height_/2)));
-        b_channel.copyTo(output(cv::Rect(1, 0, width_/2, height_/2)));
-    }
+    std::vector<cv::Mat> channels = {b_channel, g_channel, r_channel};
+    cv::merge(channels, output);
 }
 
 cv::Mat BayerNoiseReduction::interpolate_green_channel(const cv::Mat& img) {
-    // Define the G interpolation kernel (5x5)
-    float kernel_data[] = {
-        0, 0, -1, 0, 0,
-        0, 0, 2, 0, 0,
-        -1, 2, 4, 2, -1,
-        0, 0, 2, 0, 0,
-        0, 0, -1, 0, 0
-    };
-    cv::Mat kernel(5, 5, CV_32F, kernel_data);
-    kernel /= 8.0f;
+    cv::Mat g_channel = cv::Mat::zeros(height_, width_, CV_8UC1);
 
-    // Apply the kernel
-    cv::Mat interp_g;
-    cv::filter2D(img, interp_g, -1, kernel);
-    cv::threshold(interp_g, interp_g, 0, 1, cv::THRESH_TRUNC);
-    return interp_g;
+    for (int y = 0; y < height_; y++) {
+        for (int x = 0; x < width_; x++) {
+            if (bayer_pattern_ == "RGGB") {
+                if ((y % 2 == 0 && x % 2 == 1) || (y % 2 == 1 && x % 2 == 0)) {
+                    g_channel.at<uchar>(y, x) = img.at<uchar>(y, x);
+                } else {
+                    // Interpolate green value
+                    int sum = 0;
+                    int count = 0;
+                    for (int dy = -1; dy <= 1; dy += 2) {
+                        for (int dx = -1; dx <= 1; dx += 2) {
+                            int ny = y + dy;
+                            int nx = x + dx;
+                            if (ny >= 0 && ny < height_ && nx >= 0 && nx < width_) {
+                                if ((ny % 2 == 0 && nx % 2 == 1) || (ny % 2 == 1 && nx % 2 == 0)) {
+                                    sum += img.at<uchar>(ny, nx);
+                                    count++;
+                                }
+                            }
+                        }
+                    }
+                    g_channel.at<uchar>(y, x) = count > 0 ? sum / count : 0;
+                }
+            }
+        }
+    }
+
+    return g_channel;
 }
 
-cv::Mat BayerNoiseReduction::fast_joint_bilateral_filter(const cv::Mat& src, const cv::Mat& guide, int d, double sigmaColor, double sigmaSpace) {
-    cv::Mat result;
-    cv::ximgproc::jointBilateralFilter(guide, src, result, d, sigmaColor, sigmaSpace);
-    return result;
+cv::Mat BayerNoiseReduction::bilateral_filter(const cv::Mat& src, int d, double sigmaColor, double sigmaSpace) {
+    cv::Mat dst;
+    cv::bilateralFilter(src, dst, d, sigmaColor, sigmaSpace);
+    return dst;
 } 

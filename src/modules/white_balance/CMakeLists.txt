@@ -7,9 +7,11 @@ add_library(white_balance
 target_include_directories(white_balance
     PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}
+        ${OpenCV_INCLUDE_DIRS}
 )
 
 target_link_libraries(white_balance
     PUBLIC
         hdr_isp_common
+        ${OpenCV_LIBS}
 ) 

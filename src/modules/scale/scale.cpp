@@ -12,9 +12,9 @@ Scale::Scale(cv::Mat& img, const YAML::Node& platform, const YAML::Node& sensor_
     : img_(img)
     , platform_(platform)
     , sensor_info_(sensor_info)
-    , parm_sca_(parm_sca)
-    , enable_(parm_sca["is_enable"].as<bool>())
-    , is_save_(parm_sca["is_save"].as<bool>())
+    , parm_sca_(YAML::Clone(parm_sca))
+    , enable_(parm_sca_["is_enable"].as<bool>())
+    , is_save_(parm_sca_["is_save"].as<bool>())
     , conv_std_(conv_std)
 {
     get_scaling_params();

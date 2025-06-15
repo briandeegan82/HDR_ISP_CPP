@@ -1,0 +1,13 @@
+platform:
+  filename: "test.raw"
+  disable_progress_bar: false
+  leave_pbar_string: false
+  render_3a: false
+  save_format: "both"
+
+sensor_info:
+  bayer_pattern: "rggb"
+  range: 4095
+  bit_depth: 12
+  width: 2592
+  height: 1536 

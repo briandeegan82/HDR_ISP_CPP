@@ -48,7 +48,7 @@ std::array<cv::Mat, 3> Demosaic::masks_cfa_bayer() {
         char channel = bayer_pattern_[i];
         int y = (i / 2) % 2;
         int x = i % 2;
-        channels[channel == 'r' ? 0 : (channel == 'g' ? 1 : 2)].at<uchar>(y::2, x::2) = 1;
+        channels[channel == 'r' ? 0 : (channel == 'g' ? 1 : 2)].at<uchar>(y*2, x*2) = 1;
     }
 
     return channels;

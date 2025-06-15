@@ -1,6 +1,7 @@
 #include "color_space_conversion.hpp"
 #include <chrono>
 #include <iostream>
+#include <cmath>  // Add this for std::round
 
 ColorSpaceConversion::ColorSpaceConversion(const cv::Mat& img, const YAML::Node& sensor_info, 
                                          const YAML::Node& parm_csc, const YAML::Node& parm_cse)
@@ -58,7 +59,9 @@ cv::Mat ColorSpaceConversion::rgb_to_yuv_8bit() {
     // Convert to float and apply bit depth conversion
     yuv_2d.convertTo(yuv_2d, CV_64F);
     yuv_2d /= (1 << 8);
-    cv::round(yuv_2d);
+    yuv_2d.forEach<double>([](double& pixel, const int* position) {
+        pixel = std::round(pixel);
+    });
 
     // Apply color saturation enhancement if enabled
     if (parm_cse_["is_enable"].as<bool>()) {
@@ -80,7 +83,9 @@ cv::Mat ColorSpaceConversion::rgb_to_yuv_8bit() {
 
     // Final normalization to 8-bit
     yuv2d_t /= (1 << (bit_depth_ - 8));
-    cv::round(yuv2d_t);
+    yuv2d_t.forEach<double>([](double& pixel, const int* position) {
+        pixel = std::round(pixel);
+    });
     cv::threshold(yuv2d_t, yuv2d_t, 0, 255, cv::THRESH_TRUNC);
 
     // Reshape back to original dimensions

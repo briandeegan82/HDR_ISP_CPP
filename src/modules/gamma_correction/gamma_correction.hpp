@@ -1,6 +1,7 @@
 #pragma once
 
 #include <opencv2/opencv.hpp>
+#include <yaml-cpp/yaml.h>
 #include <string>
 #include <vector>
 

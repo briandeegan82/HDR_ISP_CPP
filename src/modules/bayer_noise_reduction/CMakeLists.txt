@@ -12,4 +12,6 @@ target_include_directories(bayer_noise_reduction
 target_link_libraries(bayer_noise_reduction
     PUBLIC
         hdr_isp_common
+        ${OpenCV_LIBS}
+        yaml-cpp::yaml-cpp
 ) 

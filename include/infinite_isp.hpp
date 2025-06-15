@@ -73,7 +73,7 @@ private:
     YAML::Node parm_ae_;
     YAML::Node parm_ccm_;
     YAML::Node parm_gmc_;
-    YAML::Node param_durand_;
+    YAML::Node parm_durand_;
     YAML::Node parm_csc_;
     YAML::Node parm_cse_;
     YAML::Node parm_ldci_;

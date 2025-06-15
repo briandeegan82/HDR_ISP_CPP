@@ -1,0 +1,48 @@
+platform:
+  filename: "ColorChecker_2592x1536_12bits_RGGB.raw"
+  disable_progress_bar: false
+  leave_pbar_string: false
+  render_3a: false
+  save_format: "both"
+
+sensor_info:
+  bayer_pattern: "rggb"
+  range: 4095
+  bit_depth: 12
+  width: 2592
+  height: 1536
+
+black_level_correction:
+  is_enable: true
+  r_offset: 200
+  gr_offset: 200
+  gb_offset: 200
+  b_offset: 200
+  is_linear: true
+  r_sat: 4095
+  gr_sat: 4095
+  gb_sat: 4095
+  b_sat: 4095
+  is_save: false
+
+white_balance:
+  is_enable: true
+  is_debug: true
+  is_auto: true
+  r_gain: 1.24609375
+  b_gain: 2.80859375
+  is_save: false
+
+demosaic:
+  is_save: false
+
+color_correction_matrix:
+  is_enable: true
+  corrected_red: [1.660, -0.527, -0.133]
+  corrected_green: [-0.408, 1.563, -0.082]
+  corrected_blue: [-0.055, -1.641, 2.695]
+  is_save: false
+
+gamma_correction:
+  is_enable: true
+  is_save: false 
