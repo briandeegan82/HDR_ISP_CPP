@@ -202,7 +202,7 @@ cv::Mat InfiniteISP::run_pipeline(bool visualize_output, bool save_intermediate)
             cv::imwrite(output_path.string(), img);
         }
     }
-
+    std::cout << "line 205" << std::endl;
     // Apply demosaic if enabled
     if (parm_dem_["is_enable"].as<bool>()) {
         std::cout << "Applying demosaic..." << std::endl;

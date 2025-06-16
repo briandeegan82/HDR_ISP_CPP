@@ -90,6 +90,7 @@ white_balance:
   is_save: false
 
 demosaic:
+  is_enable: true
   is_save: false
 
 color_correction_matrix:

@@ -222,14 +222,14 @@ cv::Mat BlackLevelCorrection::apply_blc_parameters() {
     // Convert back to 16-bit
     cv::Mat result;
     raw.convertTo(result, CV_16U);
-
     if (is_save_) {
         std::filesystem::create_directories("out_frames/intermediate");
         std::string output_path = "out_frames/intermediate/Out_black_level_correction_" + 
                                  std::to_string(result.cols) + "x" + std::to_string(result.rows) + ".png";
-        
+        //std::string output_path = "out_frames/intermediate/Out_black_level_correction.png";
         // Convert to 8-bit for saving
         cv::Mat save_img;
+        
         result.convertTo(save_img, CV_8U, 255.0 / ((1 << bit_depth_) - 1));
         cv::imwrite(output_path, save_img);
     }

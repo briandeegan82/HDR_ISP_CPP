@@ -19,7 +19,7 @@ cv::Mat BayerNoiseReduction::execute() {
     if (!enable_) {
         return raw_;
     }
-
+    std::cout << "Bayer Noise Reduction" << std::endl;
     auto start = std::chrono::high_resolution_clock::now();
     cv::Mat result = apply_bnr();
     auto end = std::chrono::high_resolution_clock::now();
@@ -35,13 +35,16 @@ cv::Mat BayerNoiseReduction::apply_bnr() {
     cv::Mat g_channel = interpolate_green_channel(raw_);
 
     // Apply bilateral filter to each channel
-    int d = parm_bnr_["d"].as<int>();
-    double sigmaColor = parm_bnr_["sigma_color"].as<double>();
-    double sigmaSpace = parm_bnr_["sigma_space"].as<double>();
-
-    cv::Mat filtered_r = bilateral_filter(r_channel, d, sigmaColor, sigmaSpace);
-    cv::Mat filtered_g = bilateral_filter(g_channel, d, sigmaColor, sigmaSpace);
-    cv::Mat filtered_b = bilateral_filter(b_channel, d, sigmaColor, sigmaSpace);
+    int d = parm_bnr_["filter_window"].as<int>();
+    double sigmaColor_r = parm_bnr_["r_std_dev_s"].as<double>();
+    double sigmaColor_g = parm_bnr_["g_std_dev_s"].as<double>();
+    double sigmaColor_b = parm_bnr_["b_std_dev_s"].as<double>();
+    double sigmaSpace_r = parm_bnr_["r_std_dev_r"].as<double>();
+    double sigmaSpace_g = parm_bnr_["g_std_dev_r"].as<double>();
+    double sigmaSpace_b = parm_bnr_["b_std_dev_r"].as<double>();
+    cv::Mat filtered_r = bilateral_filter(r_channel, d, sigmaColor_r, sigmaSpace_r);
+    cv::Mat filtered_g = bilateral_filter(g_channel, d, sigmaColor_g, sigmaSpace_g);
+    cv::Mat filtered_b = bilateral_filter(b_channel, d, sigmaColor_b, sigmaSpace_b);
 
     cv::Mat output;
     combine_channels(filtered_r, filtered_g, filtered_b, output);

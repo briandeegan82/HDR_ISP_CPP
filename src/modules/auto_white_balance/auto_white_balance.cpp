@@ -36,55 +36,107 @@ std::tuple<double, double> AutoWhiteBalance::determine_white_balance_gain() {
     // Extract Bayer channels
     cv::Mat r_channel, gr_channel, gb_channel, b_channel;
     
-    if (bayer_ == "rggb") {
-        r_channel = raw_(cv::Rect(0, 0, raw_.cols/2, raw_.rows/2));
-        gr_channel = raw_(cv::Rect(raw_.cols/2, 0, raw_.cols/2, raw_.rows/2));
-        gb_channel = raw_(cv::Rect(0, raw_.rows/2, raw_.cols/2, raw_.rows/2));
-        b_channel = raw_(cv::Rect(raw_.cols/2, raw_.rows/2, raw_.cols/2, raw_.rows/2));
+    if (is_debug_) {
+        std::cout << "   - AWB - Input image dimensions: " << raw_.cols << "x" << raw_.rows << std::endl;
+        std::cout << "   - AWB - Bayer pattern: " << bayer_ << std::endl;
     }
-    else if (bayer_ == "bggr") {
-        b_channel = raw_(cv::Rect(0, 0, raw_.cols/2, raw_.rows/2));
-        gb_channel = raw_(cv::Rect(raw_.cols/2, 0, raw_.cols/2, raw_.rows/2));
-        gr_channel = raw_(cv::Rect(0, raw_.rows/2, raw_.cols/2, raw_.rows/2));
-        r_channel = raw_(cv::Rect(raw_.cols/2, raw_.rows/2, raw_.cols/2, raw_.rows/2));
+
+    // Ensure input dimensions are even
+    if (raw_.cols % 2 != 0 || raw_.rows % 2 != 0) {
+        throw std::runtime_error("Input image dimensions must be even");
     }
-    else if (bayer_ == "grbg") {
-        gr_channel = raw_(cv::Rect(0, 0, raw_.cols/2, raw_.rows/2));
-        r_channel = raw_(cv::Rect(raw_.cols/2, 0, raw_.cols/2, raw_.rows/2));
-        b_channel = raw_(cv::Rect(0, raw_.rows/2, raw_.cols/2, raw_.rows/2));
-        gb_channel = raw_(cv::Rect(raw_.cols/2, raw_.rows/2, raw_.cols/2, raw_.rows/2));
+
+    // Ensure input is not empty
+    if (raw_.empty()) {
+        throw std::runtime_error("Input image is empty");
     }
-    else if (bayer_ == "gbrg") {
-        gb_channel = raw_(cv::Rect(0, 0, raw_.cols/2, raw_.rows/2));
-        b_channel = raw_(cv::Rect(raw_.cols/2, 0, raw_.cols/2, raw_.rows/2));
-        r_channel = raw_(cv::Rect(0, raw_.rows/2, raw_.cols/2, raw_.rows/2));
-        gr_channel = raw_(cv::Rect(raw_.cols/2, raw_.rows/2, raw_.cols/2, raw_.rows/2));
+
+    int half_cols = raw_.cols / 2;
+    int half_rows = raw_.rows / 2;
+
+    if (is_debug_) {
+        std::cout << "   - AWB - Half dimensions: " << half_cols << "x" << half_rows << std::endl;
+    }
+    
+    try {
+        if (bayer_ == "rggb") {
+            r_channel = raw_(cv::Rect(0, 0, half_cols, half_rows));
+            gr_channel = raw_(cv::Rect(half_cols, 0, half_cols, half_rows));
+            gb_channel = raw_(cv::Rect(0, half_rows, half_cols, half_rows));
+            b_channel = raw_(cv::Rect(half_cols, half_rows, half_cols, half_rows));
+        }
+        else if (bayer_ == "bggr") {
+            b_channel = raw_(cv::Rect(0, 0, half_cols, half_rows));
+            gb_channel = raw_(cv::Rect(half_cols, 0, half_cols, half_rows));
+            gr_channel = raw_(cv::Rect(0, half_rows, half_cols, half_rows));
+            r_channel = raw_(cv::Rect(half_cols, half_rows, half_cols, half_rows));
+        }
+        else if (bayer_ == "grbg") {
+            gr_channel = raw_(cv::Rect(0, 0, half_cols, half_rows));
+            r_channel = raw_(cv::Rect(half_cols, 0, half_cols, half_rows));
+            b_channel = raw_(cv::Rect(0, half_rows, half_cols, half_rows));
+            gb_channel = raw_(cv::Rect(half_cols, half_rows, half_cols, half_rows));
+        }
+        else if (bayer_ == "gbrg") {
+            gb_channel = raw_(cv::Rect(0, 0, half_cols, half_rows));
+            b_channel = raw_(cv::Rect(half_cols, 0, half_cols, half_rows));
+            r_channel = raw_(cv::Rect(0, half_rows, half_cols, half_rows));
+            gr_channel = raw_(cv::Rect(half_cols, half_rows, half_cols, half_rows));
+        }
+        else {
+            throw std::runtime_error("Unsupported Bayer pattern: " + bayer_);
+        }
+    }
+    catch (const cv::Exception& e) {
+        throw std::runtime_error("OpenCV error during channel extraction: " + std::string(e.what()));
+    }
+
+    // Verify channel dimensions
+    if (r_channel.empty() || gr_channel.empty() || gb_channel.empty() || b_channel.empty()) {
+        throw std::runtime_error("Failed to extract Bayer channels");
+    }
+
+    if (is_debug_) {
+        std::cout << "   - AWB - Channel dimensions:" << std::endl;
+        std::cout << "     R: " << r_channel.cols << "x" << r_channel.rows << std::endl;
+        std::cout << "     Gr: " << gr_channel.cols << "x" << gr_channel.rows << std::endl;
+        std::cout << "     Gb: " << gb_channel.cols << "x" << gb_channel.rows << std::endl;
+        std::cout << "     B: " << b_channel.cols << "x" << b_channel.rows << std::endl;
     }
 
     // Calculate average green channel
-    cv::Mat g_channel = (gr_channel + gb_channel) * 0.5;
+    cv::Mat g_channel;
+    cv::add(gr_channel, gb_channel, g_channel);
+    g_channel.convertTo(g_channel, g_channel.type(), 0.5);
 
-    // Stack channels
-    std::vector<cv::Mat> channels = {r_channel, g_channel, b_channel};
+    if (is_debug_) {
+        std::cout << "   - AWB - Green channel dimensions: " << g_channel.cols << "x" << g_channel.rows << std::endl;
+    }
+
+    // Ensure all channels have the same type
+    cv::Mat r_channel_float, g_channel_float, b_channel_float;
+    r_channel.convertTo(r_channel_float, CV_32F);
+    g_channel.convertTo(g_channel_float, CV_32F);
+    b_channel.convertTo(b_channel_float, CV_32F);
+
+    // Stack channels for gain calculation
+    std::vector<cv::Mat> channels = {r_channel_float, g_channel_float, b_channel_float};
     cv::Mat bayer_channels;
     cv::merge(channels, bayer_channels);
 
-    // Remove bad pixels
-    cv::Mat bad_pixels = (bayer_channels < underexposed_limit) | (bayer_channels > overexposed_limit);
-    cv::Mat bad_pixel_sum;
-    cv::reduce(bad_pixels.reshape(1, bad_pixels.total()), bad_pixel_sum, 1, cv::REDUCE_SUM);
-    
-    std::vector<cv::Mat> valid_pixels;
-    for (int c = 0; c < 3; ++c) {
-        cv::Mat channel = bayer_channels.reshape(1, bayer_channels.total()).col(c);
-        cv::Mat valid = channel.clone();
-        valid.setTo(0, bad_pixel_sum > 0);
-        valid_pixels.push_back(valid);
+    if (is_debug_) {
+        std::cout << "   - AWB - Merged channels dimensions: " << bayer_channels.cols << "x" << bayer_channels.rows << std::endl;
+        std::cout << "   - AWB - Merged channels type: " << bayer_channels.type() << std::endl;
     }
-    
-    cv::Mat valid_channels;
-    cv::merge(valid_pixels, valid_channels);
-    flatten_img_ = valid_channels.reshape(3, valid_channels.total());
+
+    // Prepare flattened image for gain calculation
+    cv::Mat flattened = bayer_channels.reshape(1, bayer_channels.total());
+    flatten_img_ = flattened;
+
+    if (is_debug_) {
+        std::cout << "   - AWB - Flattened image dimensions: " << flatten_img_.cols << "x" << flatten_img_.rows << std::endl;
+        std::cout << "   - AWB - Flattened image type: " << flatten_img_.type() << std::endl;
+    }
 
     // Apply selected algorithm
     std::tuple<double, double> gains;
@@ -107,6 +159,81 @@ std::tuple<double, double> AutoWhiteBalance::determine_white_balance_gain() {
         std::cout << "   - AWB - RGain = " << rgain << std::endl;
         std::cout << "   - AWB - Bgain = " << bgain << std::endl;
     }
+
+    // Apply gains to the original Bayer pattern
+    cv::Mat result = raw_.clone();
+    result.convertTo(result, CV_32F);
+
+    // Create gain matrices for each color
+    cv::Mat r_gain_mat = cv::Mat::ones(result.size(), CV_32F) * rgain;
+    cv::Mat b_gain_mat = cv::Mat::ones(result.size(), CV_32F) * bgain;
+    cv::Mat g_gain_mat = cv::Mat::ones(result.size(), CV_32F);
+
+    if (bayer_ == "rggb") {
+        // Red pixels
+        for (int i = 0; i < result.rows; i += 2) {
+            for (int j = 0; j < result.cols; j += 2) {
+                result.at<float>(i, j) *= r_gain_mat.at<float>(i, j);
+            }
+        }
+        // Blue pixels
+        for (int i = 1; i < result.rows; i += 2) {
+            for (int j = 1; j < result.cols; j += 2) {
+                result.at<float>(i, j) *= b_gain_mat.at<float>(i, j);
+            }
+        }
+    }
+    else if (bayer_ == "bggr") {
+        // Blue pixels
+        for (int i = 0; i < result.rows; i += 2) {
+            for (int j = 0; j < result.cols; j += 2) {
+                result.at<float>(i, j) *= b_gain_mat.at<float>(i, j);
+            }
+        }
+        // Red pixels
+        for (int i = 1; i < result.rows; i += 2) {
+            for (int j = 1; j < result.cols; j += 2) {
+                result.at<float>(i, j) *= r_gain_mat.at<float>(i, j);
+            }
+        }
+    }
+    else if (bayer_ == "grbg") {
+        // Blue pixels
+        for (int i = 1; i < result.rows; i += 2) {
+            for (int j = 0; j < result.cols; j += 2) {
+                result.at<float>(i, j) *= b_gain_mat.at<float>(i, j);
+            }
+        }
+        // Red pixels
+        for (int i = 0; i < result.rows; i += 2) {
+            for (int j = 1; j < result.cols; j += 2) {
+                result.at<float>(i, j) *= r_gain_mat.at<float>(i, j);
+            }
+        }
+    }
+    else if (bayer_ == "gbrg") {
+        // Red pixels
+        for (int i = 1; i < result.rows; i += 2) {
+            for (int j = 0; j < result.cols; j += 2) {
+                result.at<float>(i, j) *= r_gain_mat.at<float>(i, j);
+            }
+        }
+        // Blue pixels
+        for (int i = 0; i < result.rows; i += 2) {
+            for (int j = 1; j < result.cols; j += 2) {
+                result.at<float>(i, j) *= b_gain_mat.at<float>(i, j);
+            }
+        }
+    }
+
+    // Clip values to valid range
+    double max_val = (1 << bit_depth_) - 1;
+    cv::threshold(result, result, max_val, max_val, cv::THRESH_TRUNC);
+
+    // Convert back to original type
+    cv::Mat result_final;
+    result.convertTo(result_final, raw_.type());
+    raw_ = result_final;
 
     return {rgain, bgain};
 }
