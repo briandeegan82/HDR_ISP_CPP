@@ -176,7 +176,10 @@ cv::Mat InfiniteISP::run_pipeline(bool visualize_output, bool save_intermediate)
         img = blc.execute();
         if (save_intermediate) {
             fs::path output_path = intermediate_dir / "black_level_correction.png";
-            cv::imwrite(output_path.string(), img);
+            // Convert to 8-bit before saving
+            cv::Mat save_img;
+            img.convertTo(save_img, CV_8U, 255.0 / ((1 << sensor_info_.bit_depth) - 1));
+            cv::imwrite(output_path.string(), save_img);
         }
     }
 
@@ -186,7 +189,10 @@ cv::Mat InfiniteISP::run_pipeline(bool visualize_output, bool save_intermediate)
         img = bnr.execute();
         if (save_intermediate) {
             fs::path output_path = intermediate_dir / "bayer_noise_reduction.png";
-            cv::imwrite(output_path.string(), img);
+            // Convert to 8-bit before saving
+            cv::Mat save_img;
+            img.convertTo(save_img, CV_8U, 255.0 / ((1 << sensor_info_.bit_depth) - 1));
+            cv::imwrite(output_path.string(), save_img);
         }
     }
 

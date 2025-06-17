@@ -16,7 +16,9 @@ BlackLevelCorrection::BlackLevelCorrection(const cv::Mat& img, const YAML::Node&
 }
 
 cv::Mat BlackLevelCorrection::execute() {
+    std::cerr << "Debug - Entering BlackLevelCorrection::execute(), is_save_ = " << (is_save_ ? "true" : "false") << std::endl;
     if (!enable_) {
+        std::cerr << "Debug - Black level correction is disabled" << std::endl;
         return raw_;
     }
 
@@ -24,17 +26,50 @@ cv::Mat BlackLevelCorrection::execute() {
     cv::Mat result = apply_blc_parameters();
     auto end = std::chrono::high_resolution_clock::now();
     std::chrono::duration<double> duration = end - start;
-    std::cout << "Black Level Correction execution time: " << duration.count() << " seconds" << std::endl;
+    std::cerr << "Black Level Correction execution time: " << duration.count() << " seconds" << std::endl;
 
     if (is_save_) {
-        std::filesystem::create_directories("out_frames/intermediate");
-        std::string output_path = "out_frames/intermediate/Out_black_level_correction_" + 
-                                 std::to_string(result.cols) + "x" + std::to_string(result.rows) + ".png";
-        
-        // Convert to 8-bit for saving
-        cv::Mat save_img;
-        result.convertTo(save_img, CV_8U, 255.0 / ((1 << bit_depth_) - 1));
-        cv::imwrite(output_path, save_img);
+        std::cerr << "Debug - Attempting to save intermediate image" << std::endl;
+        try {
+            std::filesystem::create_directories("out_frames/intermediate");
+            std::string output_path = "out_frames/intermediate/Out_black_level_correction_" + 
+                                    std::to_string(result.cols) + "x" + std::to_string(result.rows) + ".png";
+            
+            std::cerr << "Debug - Output path: " << output_path << std::endl;
+            
+            // Convert to 8-bit for saving
+            cv::Mat save_img;
+            std::cerr << "Debug - Before conversion, result type: " << result.type() << ", depth: " << result.depth() << std::endl;
+            result.convertTo(save_img, CV_8U, 255.0 / ((1 << bit_depth_) - 1));
+            std::cerr << "Debug - After conversion, save_img type: " << save_img.type() << ", depth: " << save_img.depth() << std::endl;
+            
+            if (save_img.empty()) {
+                std::cerr << "Error: save_img is empty after conversion!" << std::endl;
+                return result;
+            }
+            
+            // Debug prints for image statistics
+            double min_val, max_val;
+            cv::minMaxLoc(save_img, &min_val, &max_val);
+            cv::Scalar mean_val = cv::mean(save_img);
+            std::cerr << "Debug - save_img statistics:" << std::endl;
+            std::cerr << "  Mean: " << mean_val[0] << std::endl;
+            std::cerr << "  Min: " << min_val << std::endl;
+            std::cerr << "  Max: " << max_val << std::endl;
+            std::cerr << "  Image size: " << save_img.size() << std::endl;
+            std::cerr << "  Number of channels: " << save_img.channels() << std::endl;
+            
+            bool write_success = cv::imwrite(output_path, save_img);
+            if (!write_success) {
+                std::cerr << "Error: Failed to write image to: " << output_path << std::endl;
+            } else {
+                std::cerr << "Successfully wrote image to: " << output_path << std::endl;
+            }
+        } catch (const std::exception& e) {
+            std::cerr << "Error saving image: " << e.what() << std::endl;
+        }
+    } else {
+        std::cerr << "Debug - Skipping save as is_save_ is false" << std::endl;
     }
 
     return result;
@@ -222,17 +257,5 @@ cv::Mat BlackLevelCorrection::apply_blc_parameters() {
     // Convert back to 16-bit
     cv::Mat result;
     raw.convertTo(result, CV_16U);
-    if (is_save_) {
-        std::filesystem::create_directories("out_frames/intermediate");
-        std::string output_path = "out_frames/intermediate/Out_black_level_correction_" + 
-                                 std::to_string(result.cols) + "x" + std::to_string(result.rows) + ".png";
-        //std::string output_path = "out_frames/intermediate/Out_black_level_correction.png";
-        // Convert to 8-bit for saving
-        cv::Mat save_img;
-        
-        result.convertTo(save_img, CV_8U, 255.0 / ((1 << bit_depth_) - 1));
-        cv::imwrite(output_path, save_img);
-    }
-
     return result;
 } 

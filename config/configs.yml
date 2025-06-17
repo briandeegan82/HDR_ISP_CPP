@@ -37,7 +37,7 @@ black_level_correction:
   gr_sat: 4095
   gb_sat: 4095
   b_sat: 4095
-  is_save: false
+  is_save: true
 
 oecf:
   is_enable: false
@@ -69,7 +69,7 @@ bayer_noise_reduction:
   g_std_dev_r: 0.08
   b_std_dev_s: 1
   b_std_dev_r: 0.1
-  is_save: false
+  is_save: true
 
 auto_white_balance:
   is_enable: true
