@@ -4,6 +4,11 @@
 #include <string>
 #include <array>
 
+enum class DemosaicAlgorithm {
+    MALVAR,
+    OPENCV
+};
+
 class Malvar {
 public:
     Malvar(const cv::Mat& raw_in, const std::array<cv::Mat, 3>& masks);
@@ -22,7 +27,7 @@ private:
 
 class Demosaic {
 public:
-    Demosaic(const cv::Mat& img, const std::string& bayer_pattern, int bit_depth = 16, bool is_save = true);
+    Demosaic(const cv::Mat& img, const std::string& bayer_pattern, int bit_depth = 16, bool is_save = true, DemosaicAlgorithm algorithm = DemosaicAlgorithm::MALVAR);
     cv::Mat execute();
 
 private:
@@ -30,8 +35,10 @@ private:
     std::string bayer_pattern_;
     int bit_depth_;
     bool is_save_;
+    DemosaicAlgorithm algorithm_;
 
     std::array<cv::Mat, 3> masks_cfa_bayer();
     cv::Mat apply_cfa();
+    cv::Mat apply_opencv_demosaic();
     void save();
 }; 
