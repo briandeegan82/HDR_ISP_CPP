@@ -10,7 +10,7 @@ AutoExposure::AutoExposure(const cv::Mat& img, const YAML::Node& sensor_info, co
     , enable_(parm_ae["is_enable"].as<bool>())
     , is_debug_(parm_ae["is_debug"].as<bool>())
     , center_illuminance_(parm_ae["center_illuminance"].as<float>())
-    , histogram_skewness_range_(parm_ae["histogram_skewness_range"].as<float>())
+    , histogram_skewness_range_(parm_ae["histogram_skewness"].as<float>())
     , bit_depth_(sensor_info["bit_depth"].as<int>())
 {
 }

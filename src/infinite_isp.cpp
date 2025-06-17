@@ -247,7 +247,9 @@ cv::Mat InfiniteISP::run_pipeline(bool visualize_output, bool save_intermediate)
         
         if (save_intermediate) {
             fs::path output_path = intermediate_dir / "auto_exposure.png";
-            cv::imwrite(output_path.string(), img);
+            cv::Mat save_img;
+            img.convertTo(save_img, CV_8U, 255.0 / ((1 << sensor_info_.bit_depth) - 1));
+            cv::imwrite(output_path.string(), save_img);
         }
     }
 
@@ -257,7 +259,9 @@ cv::Mat InfiniteISP::run_pipeline(bool visualize_output, bool save_intermediate)
         img = ccm.execute();
         if (save_intermediate) {
             fs::path output_path = intermediate_dir / "color_correction_matrix.png";
-            cv::imwrite(output_path.string(), img);
+            cv::Mat save_img;
+            img.convertTo(save_img, CV_8U, 255.0 / ((1 << sensor_info_.bit_depth) - 1));
+            cv::imwrite(output_path.string(), save_img);
         }
     }
 
@@ -267,7 +271,9 @@ cv::Mat InfiniteISP::run_pipeline(bool visualize_output, bool save_intermediate)
         img = csc.execute();
         if (save_intermediate) {
             fs::path output_path = intermediate_dir / "color_space_conversion.png";
-            cv::imwrite(output_path.string(), img);
+            cv::Mat save_img;
+            img.convertTo(save_img, CV_8U, 255.0 / ((1 << sensor_info_.bit_depth) - 1));
+            cv::imwrite(output_path.string(), save_img);
         }
     }
 
