@@ -110,7 +110,7 @@ gamma_correction:
   is_save: false
 
 auto_exposure:
-  is_enable: true
+  is_enable: false
   is_debug: true
   center_illuminance: 90
   histogram_skewness: 0.9

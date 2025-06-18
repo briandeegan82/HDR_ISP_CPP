@@ -73,6 +73,15 @@ cv::Mat ColorCorrectionMatrix::apply_ccm() {
         ccm_mat_.at<float>(2, i) = corrected_blue[i];
     }
 
+    // Debug print CCM matrix
+    std::cout << "CCM Matrix:" << std::endl;
+    for (int i = 0; i < 3; i++) {
+        for (int j = 0; j < 3; j++) {
+            std::cout << ccm_mat_.at<float>(i, j) << "\t";
+        }
+        std::cout << std::endl;
+    }
+
     // Print input image statistics
     std::cout << "CCM Input image statistics:" << std::endl;
     std::cout << "  Type: " << raw_.type() << " (CV_8U=" << CV_8U << ", CV_16U=" << CV_16U << ", CV_32F=" << CV_32F << ")" << std::endl;
@@ -82,33 +91,49 @@ cv::Mat ColorCorrectionMatrix::apply_ccm() {
     cv::minMaxLoc(raw_, &min_val, &max_val);
     std::cout << "  Min: " << min_val << ", Max: " << max_val << std::endl;
 
-    // Convert to float and normalize to 0-1 range
-    cv::Mat normalized;
-    raw_.convertTo(normalized, CV_32F);
-    int input_bit_depth = sensor_info_["bit_depth"].as<int>();
-    float scale = 1.0f / ((1 << input_bit_depth) - 1);
-    normalized *= scale;
-
-    // Ensure values are in [0,1] range
-    cv::threshold(normalized, normalized, 0, 1, cv::THRESH_TRUNC);
-
-    // Print normalized image statistics
-    std::cout << "CCM Normalized image statistics:" << std::endl;
-    cv::minMaxLoc(normalized, &min_val, &max_val);
-    std::cout << "  Min: " << min_val << ", Max: " << max_val << std::endl;
+    // Convert to float for CCM operation
+    cv::Mat float_img;
+    raw_.convertTo(float_img, CV_32F);
 
     // Reshape image to Nx3 matrix
-    cv::Mat reshaped = normalized.reshape(1, normalized.total());
+    cv::Mat reshaped = float_img.reshape(1, float_img.total());
+
+    // Debug print reshaped matrix dimensions
+    std::cout << "Reshaped matrix dimensions: " << reshaped.rows << "x" << reshaped.cols << std::endl;
 
     // Apply CCM
     cv::Mat result;
-    cv::gemm(reshaped, ccm_mat_, 1.0, cv::Mat(), 0.0, result);
-
-    // Clip values to [0, 1]
-    cv::threshold(result, result, 0, 1, cv::THRESH_TRUNC);
+    
+    // Transpose CCM matrix for correct multiplication order
+    cv::Mat ccm_transposed;
+    cv::transpose(ccm_mat_, ccm_transposed);
+    
+    // Debug print for center pixel CCM multiplication
+    int center_idx = reshaped.rows / 2;
+    std::cout << "\nCCM Matrix multiplication for center pixel:" << std::endl;
+    std::cout << "Input RGB values: [" << reshaped.at<float>(center_idx, 0) << ", "
+              << reshaped.at<float>(center_idx, 1) << ", "
+              << reshaped.at<float>(center_idx, 2) << "]" << std::endl;
+    
+    std::cout << "CCM Matrix (transposed):" << std::endl;
+    for (int i = 0; i < 3; i++) {
+        std::cout << "[";
+        for (int j = 0; j < 3; j++) {
+            std::cout << ccm_transposed.at<float>(i, j);
+            if (j < 2) std::cout << " ";
+        }
+        std::cout << "]" << std::endl;
+    }
+    
+    cv::gemm(reshaped, ccm_transposed, 1.0, cv::Mat(), 0.0, result);
+    
+    // Print result for center pixel
+    std::cout << "Output RGB values: [" << result.at<float>(center_idx, 0) << ", "
+              << result.at<float>(center_idx, 1) << ", "
+              << result.at<float>(center_idx, 2) << "]" << std::endl << std::endl;
 
     // Reshape back to original dimensions
-    result = result.reshape(3, normalized.rows);
+    result = result.reshape(3, float_img.rows);
 
     // Print result statistics before conversion
     std::cout << "CCM Result before conversion statistics:" << std::endl;
@@ -117,8 +142,7 @@ cv::Mat ColorCorrectionMatrix::apply_ccm() {
 
     // Convert back to output bit depth
     cv::Mat output;
-    int output_bit_depth = output_bit_depth_;
-    result.convertTo(output, CV_16UC3, (1 << output_bit_depth) - 1);
+    result.convertTo(output, CV_16UC3);
 
     // Print output image statistics
     std::cout << "CCM Output image statistics:" << std::endl;
