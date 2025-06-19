@@ -16,6 +16,7 @@ Scale::Scale(cv::Mat& img, const YAML::Node& platform, const YAML::Node& sensor_
     , enable_(parm_sca_["is_enable"].as<bool>())
     , is_save_(parm_sca_["is_save"].as<bool>())
     , conv_std_(conv_std)
+    , use_eigen_(true) // Use Eigen by default
 {
     get_scaling_params();
 }
@@ -26,7 +27,7 @@ void Scale::get_scaling_params() {
     new_size_ = std::make_pair(parm_sca_["new_height"].as<int>(), parm_sca_["new_width"].as<int>());
 }
 
-cv::Mat Scale::apply_scaling() {
+cv::Mat Scale::apply_scaling_opencv() {
     // Check if no change in size
     if (old_size_ == new_size_) {
         if (is_debug_) {
@@ -65,6 +66,45 @@ cv::Mat Scale::apply_scaling() {
     return scaled_img;
 }
 
+hdr_isp::EigenImage Scale::apply_scaling_eigen() {
+    // Check if no change in size
+    if (old_size_ == new_size_) {
+        if (is_debug_) {
+            std::cout << "   - Output size is the same as input size." << std::endl;
+        }
+        return hdr_isp::opencv_to_eigen(img_);
+    }
+
+    // Convert to Eigen
+    hdr_isp::EigenImage eigen_img = hdr_isp::opencv_to_eigen(img_);
+    int old_rows = eigen_img.rows();
+    int old_cols = eigen_img.cols();
+    int new_rows = new_size_.first;
+    int new_cols = new_size_.second;
+
+    // Create scaled image
+    hdr_isp::EigenImage scaled_img = hdr_isp::EigenImage::Zero(new_rows, new_cols);
+
+    // Simple nearest neighbor scaling for Eigen implementation
+    float scale_x = static_cast<float>(old_cols) / new_cols;
+    float scale_y = static_cast<float>(old_rows) / new_rows;
+
+    for (int i = 0; i < new_rows; ++i) {
+        for (int j = 0; j < new_cols; ++j) {
+            int src_i = static_cast<int>(i * scale_y);
+            int src_j = static_cast<int>(j * scale_x);
+            
+            // Clamp to valid range
+            src_i = std::min(src_i, old_rows - 1);
+            src_j = std::min(src_j, old_cols - 1);
+            
+            scaled_img(i, j) = eigen_img(src_i, src_j);
+        }
+    }
+
+    return scaled_img;
+}
+
 void Scale::save() {
     if (is_save_) {
         // Update size in filename
@@ -83,7 +123,14 @@ cv::Mat Scale::execute() {
 
     if (enable_) {
         auto start = std::chrono::high_resolution_clock::now();
-        img_ = apply_scaling();
+        
+        if (use_eigen_) {
+            hdr_isp::EigenImage eigen_result = apply_scaling_eigen();
+            img_ = hdr_isp::eigen_to_opencv(eigen_result);
+        } else {
+            img_ = apply_scaling_opencv();
+        }
+        
         auto end = std::chrono::high_resolution_clock::now();
         std::chrono::duration<double> duration = end - start;
         std::cout << "  Execution time: " << duration.count() << "s" << std::endl;

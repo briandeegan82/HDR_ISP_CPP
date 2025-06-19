@@ -3,6 +3,7 @@
 #include <opencv2/opencv.hpp>
 #include <string>
 #include <yaml-cpp/yaml.h>
+#include "../../common/eigen_utils.hpp"
 
 class WhiteBalance {
 public:
@@ -12,7 +13,8 @@ public:
     cv::Mat execute();
 
 private:
-    cv::Mat apply_wb_parameters();
+    cv::Mat apply_wb_parameters_opencv();
+    hdr_isp::EigenImage apply_wb_parameters_eigen();
     void save();
 
     cv::Mat img_;
@@ -27,4 +29,5 @@ private:
     std::string bayer_;
     int bpp_;
     cv::Mat raw_;
+    bool use_eigen_;
 }; 

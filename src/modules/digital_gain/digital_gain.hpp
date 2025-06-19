@@ -4,6 +4,7 @@
 #include <string>
 #include <vector>
 #include <yaml-cpp/yaml.h>
+#include "../../common/eigen_utils.hpp"
 
 class DigitalGain {
 public:
@@ -13,7 +14,8 @@ public:
     std::pair<cv::Mat, int> execute();
 
 private:
-    cv::Mat apply_digital_gain();
+    cv::Mat apply_digital_gain_opencv();
+    hdr_isp::EigenImage apply_digital_gain_eigen();
     void save();
 
     cv::Mat img_;
@@ -26,4 +28,5 @@ private:
     std::vector<float> gains_array_;
     int current_gain_;
     float ae_feedback_;
+    bool use_eigen_;
 }; 

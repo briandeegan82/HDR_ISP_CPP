@@ -3,6 +3,7 @@
 #include <opencv2/opencv.hpp>
 #include <string>
 #include <yaml-cpp/yaml.h>
+#include "../../common/eigen_utils.hpp"
 
 class Crop {
 public:
@@ -13,7 +14,8 @@ public:
 
 private:
     void update_sensor_info(YAML::Node& dictionary);
-    cv::Mat crop(const cv::Mat& img, int rows_to_crop, int cols_to_crop);
+    hdr_isp::EigenImage crop_eigen(const hdr_isp::EigenImage& img, int rows_to_crop, int cols_to_crop);
+    cv::Mat crop_opencv(const cv::Mat& img, int rows_to_crop, int cols_to_crop);
     cv::Mat apply_cropping();
     void save(const std::string& filename_tag);
 
@@ -26,4 +28,5 @@ private:
     bool enable_;
     bool is_debug_;
     bool is_save_;
+    bool use_eigen_; // Flag to choose between Eigen and OpenCV implementation
 }; 

@@ -2,6 +2,7 @@
 #include <chrono>
 #include <iostream>
 #include <filesystem>
+#include <algorithm>
 
 BlackLevelCorrection::BlackLevelCorrection(const cv::Mat& img, const YAML::Node& sensor_info, const YAML::Node& parm_blc)
     : raw_(img)
@@ -12,6 +13,7 @@ BlackLevelCorrection::BlackLevelCorrection(const cv::Mat& img, const YAML::Node&
     , bit_depth_(sensor_info["bit_depth"].as<int>())
     , bayer_pattern_(sensor_info["bayer_pattern"].as<std::string>())
     , is_save_(parm_blc["is_save"].as<bool>())
+    , use_eigen_(true) // Use Eigen by default
 {
 }
 
@@ -23,7 +25,16 @@ cv::Mat BlackLevelCorrection::execute() {
     }
 
     auto start = std::chrono::high_resolution_clock::now();
-    cv::Mat result = apply_blc_parameters();
+    cv::Mat result;
+    if (use_eigen_) {
+        if (is_save_) std::cerr << "Debug - Using Eigen implementation for BLC" << std::endl;
+        hdr_isp::EigenImage eigen_img = hdr_isp::EigenImage::fromOpenCV(raw_);
+        hdr_isp::EigenImage corrected = apply_blc_parameters_eigen(eigen_img);
+        result = corrected.toOpenCV(raw_.type());
+    } else {
+        if (is_save_) std::cerr << "Debug - Using OpenCV implementation for BLC" << std::endl;
+        result = apply_blc_parameters_opencv();
+    }
     auto end = std::chrono::high_resolution_clock::now();
     std::chrono::duration<double> duration = end - start;
     std::cerr << "Black Level Correction execution time: " << duration.count() << " seconds" << std::endl;
@@ -75,7 +86,7 @@ cv::Mat BlackLevelCorrection::execute() {
     return result;
 }
 
-cv::Mat BlackLevelCorrection::apply_blc_parameters() {
+cv::Mat BlackLevelCorrection::apply_blc_parameters_opencv() {
     // Get parameters from config
     double r_offset = parm_blc_["r_offset"].as<double>();
     double gb_offset = parm_blc_["gb_offset"].as<double>();
@@ -258,4 +269,51 @@ cv::Mat BlackLevelCorrection::apply_blc_parameters() {
     cv::Mat result;
     raw.convertTo(result, CV_16U);
     return result;
+}
+
+hdr_isp::EigenImage BlackLevelCorrection::apply_blc_parameters_eigen(const hdr_isp::EigenImage& img) {
+    double r_offset = parm_blc_["r_offset"].as<double>();
+    double gb_offset = parm_blc_["gb_offset"].as<double>();
+    double gr_offset = parm_blc_["gr_offset"].as<double>();
+    double b_offset = parm_blc_["b_offset"].as<double>();
+    double r_sat = parm_blc_["r_sat"].as<double>();
+    double gr_sat = parm_blc_["gr_sat"].as<double>();
+    double gb_sat = parm_blc_["gb_sat"].as<double>();
+    double b_sat = parm_blc_["b_sat"].as<double>();
+    hdr_isp::EigenImage result = img;
+    apply_blc_bayer_eigen(result, r_offset, gr_offset, gb_offset, b_offset, r_sat, gr_sat, gb_sat, b_sat);
+    return result;
+}
+
+void BlackLevelCorrection::apply_blc_bayer_eigen(hdr_isp::EigenImage& img, double r_offset, double gr_offset, double gb_offset, double b_offset, double r_sat, double gr_sat, double gb_sat, double b_sat) {
+    int rows = img.rows();
+    int cols = img.cols();
+    int max_val = (1 << bit_depth_) - 1;
+    if (bayer_pattern_ == "rggb") {
+        for (int i = 0; i < rows; i += 2) {
+            for (int j = 0; j < cols; j += 2) {
+                img.data()(i, j) -= r_offset;
+                if (is_linearize_) img.data()(i, j) = img.data()(i, j) / (r_sat - r_offset) * max_val;
+            }
+        }
+        for (int i = 0; i < rows; i += 2) {
+            for (int j = 1; j < cols; j += 2) {
+                img.data()(i, j) -= gr_offset;
+                if (is_linearize_) img.data()(i, j) = img.data()(i, j) / (gr_sat - gr_offset) * max_val;
+            }
+        }
+        for (int i = 1; i < rows; i += 2) {
+            for (int j = 0; j < cols; j += 2) {
+                img.data()(i, j) -= gb_offset;
+                if (is_linearize_) img.data()(i, j) = img.data()(i, j) / (gb_sat - gb_offset) * max_val;
+            }
+        }
+        for (int i = 1; i < rows; i += 2) {
+            for (int j = 1; j < cols; j += 2) {
+                img.data()(i, j) -= b_offset;
+                if (is_linearize_) img.data()(i, j) = img.data()(i, j) / (b_sat - b_offset) * max_val;
+            }
+        }
+    }
+    // (other Bayer patterns can be added similarly)
 } 

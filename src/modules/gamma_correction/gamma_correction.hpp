@@ -4,6 +4,7 @@
 #include <yaml-cpp/yaml.h>
 #include <string>
 #include <vector>
+#include "../../common/eigen_utils.hpp"
 
 class GammaCorrection {
 public:
@@ -12,6 +13,11 @@ public:
     cv::Mat execute();
 
 private:
+    std::vector<uint32_t> generate_gamma_lut(int bit_depth);
+    cv::Mat apply_gamma_opencv();
+    hdr_isp::EigenImage apply_gamma_eigen();
+    void save();
+
     cv::Mat img_;
     bool enable_;
     YAML::Node sensor_info_;
@@ -19,8 +25,5 @@ private:
     YAML::Node parm_gmm_;
     bool is_save_;
     YAML::Node platform_;
-
-    std::vector<uint32_t> generate_gamma_lut(int bit_depth);
-    cv::Mat apply_gamma();
-    void save();
+    bool use_eigen_;
 }; 

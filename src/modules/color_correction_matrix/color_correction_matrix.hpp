@@ -3,6 +3,7 @@
 #include <opencv2/opencv.hpp>
 #include <string>
 #include <yaml-cpp/yaml.h>
+#include "../../common/eigen_utils.hpp"
 
 class ColorCorrectionMatrix {
 public:
@@ -11,7 +12,8 @@ public:
     cv::Mat execute();
 
 private:
-    cv::Mat apply_ccm();
+    cv::Mat apply_ccm_opencv();
+    hdr_isp::EigenImage apply_ccm_eigen();
 
     cv::Mat raw_;
     YAML::Node sensor_info_;
@@ -20,4 +22,5 @@ private:
     int output_bit_depth_;
     cv::Mat ccm_mat_;
     bool is_save_;
+    bool use_eigen_;
 }; 

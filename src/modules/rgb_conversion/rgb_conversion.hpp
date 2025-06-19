@@ -3,6 +3,7 @@
 #include <opencv2/opencv.hpp>
 #include <string>
 #include <yaml-cpp/yaml.h>
+#include "../../common/eigen_utils.hpp"
 
 class RGBConversion {
 public:
@@ -12,7 +13,8 @@ public:
     cv::Mat execute();
 
 private:
-    cv::Mat yuv_to_rgb();
+    cv::Mat yuv_to_rgb_opencv();
+    hdr_isp::EigenImage yuv_to_rgb_eigen();
     void save();
 
     cv::Mat img_;
@@ -27,4 +29,5 @@ private:
     cv::Mat yuv_img_;
     cv::Mat yuv2rgb_mat_;
     cv::Vec3i offset_;
+    bool use_eigen_;
 }; 

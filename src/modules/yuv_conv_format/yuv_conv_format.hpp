@@ -5,6 +5,7 @@
 #include <yaml-cpp/yaml.h>
 #include <fstream>
 #include <regex>
+#include "../../common/eigen_utils.hpp"
 
 class YUVConvFormat {
 public:
@@ -14,7 +15,8 @@ public:
     cv::Mat execute();
 
 private:
-    cv::Mat convert2yuv_format();
+    cv::Mat convert2yuv_format_opencv();
+    hdr_isp::EigenImage convert2yuv_format_eigen();
     void save();
 
     cv::Mat img_;
@@ -26,4 +28,5 @@ private:
 
     bool is_enable_;
     bool is_save_;
+    bool use_eigen_;
 }; 

@@ -3,6 +3,7 @@
 #include <opencv2/opencv.hpp>
 #include <string>
 #include <yaml-cpp/yaml.h>
+#include "../../common/eigen_utils.hpp"
 
 class OECF {
 public:
@@ -11,7 +12,8 @@ public:
     cv::Mat execute();
 
 private:
-    cv::Mat apply_oecf();
+    cv::Mat apply_oecf_opencv();
+    hdr_isp::EigenImage apply_oecf_eigen();
     void save();
 
     cv::Mat& img_;
@@ -20,4 +22,5 @@ private:
     const YAML::Node& parm_oecf_;
     bool enable_;
     bool is_save_;
+    bool use_eigen_; // Flag to choose between Eigen and OpenCV implementation
 }; 

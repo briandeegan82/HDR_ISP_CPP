@@ -14,12 +14,24 @@ sensor_info:
   width: 2592
   height: 1536
 
+companding:
+  is_enable: false
+  pedestal: 0 #240
+  companded: True
+  companded_pin: [1, 256, 512, 831, 994, 1319, 1984, 2530, 2871, 2968, 3258, 3541, 3855]
+  companded_pout: [1, 256, 1024, 3900, 7800, 23400, 87315, 174630, 349260, 548241, 1736000, 5208000, 16777200]
+  #input_range: 65535
+  #output_range: 1048575
+  #num_kneepoints: 10
+  #A: 87.6 # don't touch!
+  is_save: false
+
 crop:
   is_enable: false
-  is_debug: false
+  is_debug: true
   new_width: 1280
   new_height: 720
-  is_save: false  
+  is_save: true  
 
 dead_pixel_correction: 
   is_enable: false
@@ -117,6 +129,7 @@ auto_exposure:
 
 
 color_space_conversion: 
+  is_enable: false
   conv_standard: 2
   # Bt.709 HD =   1
   # Bt.601/4407 = 2
@@ -152,7 +165,7 @@ rgb_conversion:
   is_save: false
 
 scale:
-  is_enable: false
+  is_enable: true
   is_debug: true
   new_width: 1920
   new_height: 1080   

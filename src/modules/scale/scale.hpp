@@ -4,6 +4,7 @@
 #include <string>
 #include <vector>
 #include <yaml-cpp/yaml.h>
+#include "../../common/eigen_utils.hpp"
 
 class Scale {
 public:
@@ -13,7 +14,8 @@ public:
     cv::Mat execute();
 
 private:
-    cv::Mat apply_scaling();
+    cv::Mat apply_scaling_opencv();
+    hdr_isp::EigenImage apply_scaling_eigen();
     void get_scaling_params();
     void save();
 
@@ -27,4 +29,5 @@ private:
     bool is_debug_;
     std::pair<int, int> old_size_;
     std::pair<int, int> new_size_;
+    bool use_eigen_;
 }; 

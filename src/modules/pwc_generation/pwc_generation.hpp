@@ -4,6 +4,7 @@
 #include <string>
 #include <vector>
 #include <yaml-cpp/yaml.h>
+#include "../../common/eigen_utils.hpp"
 
 class PiecewiseCurve {
 public:
@@ -19,6 +20,9 @@ private:
     );
     void save();
 
+    cv::Mat execute_opencv();
+    hdr_isp::EigenImage execute_eigen();
+
     cv::Mat& img_;
     const YAML::Node& platform_;
     const YAML::Node& sensor_info_;
@@ -28,4 +32,5 @@ private:
     std::vector<int> companded_pin_;
     std::vector<int> companded_pout_;
     bool is_save_;
+    bool use_eigen_; // Flag to choose between Eigen and OpenCV implementation
 }; 

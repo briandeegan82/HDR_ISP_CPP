@@ -3,6 +3,7 @@
 #include <opencv2/opencv.hpp>
 #include <string>
 #include <yaml-cpp/yaml.h>
+#include "../../common/eigen_utils.hpp"
 
 class LDCI {
 public:
@@ -12,9 +13,12 @@ public:
     cv::Mat execute();
 
 private:
-    cv::Mat apply_ldci();
-    cv::Mat calculate_local_contrast(const cv::Mat& img);
-    cv::Mat enhance_contrast(const cv::Mat& img, const cv::Mat& local_contrast);
+    cv::Mat apply_ldci_opencv();
+    hdr_isp::EigenImage apply_ldci_eigen();
+    cv::Mat calculate_local_contrast_opencv(const cv::Mat& img);
+    hdr_isp::EigenImage calculate_local_contrast_eigen(const hdr_isp::EigenImage& img);
+    cv::Mat enhance_contrast_opencv(const cv::Mat& img, const cv::Mat& local_contrast);
+    hdr_isp::EigenImage enhance_contrast_eigen(const hdr_isp::EigenImage& img, const hdr_isp::EigenImage& local_contrast);
     void save();
 
     cv::Mat img_;
@@ -27,4 +31,5 @@ private:
     float strength_;
     int window_size_;
     int output_bit_depth_;
+    bool use_eigen_;
 }; 

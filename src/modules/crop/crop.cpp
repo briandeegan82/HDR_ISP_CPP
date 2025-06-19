@@ -17,6 +17,7 @@ Crop::Crop(const cv::Mat& img, const YAML::Node& platform,
     , enable_(parm_cro["is_enable"].as<bool>())
     , is_debug_(parm_cro["is_debug"].as<bool>())
     , is_save_(parm_cro["is_save"].as<bool>())
+    , use_eigen_(true) // Use Eigen by default, can be made configurable
 {
     update_sensor_info(sensor_info_);
 }
@@ -32,7 +33,28 @@ void Crop::update_sensor_info(YAML::Node& dictionary) {
     }
 }
 
-cv::Mat Crop::crop(const cv::Mat& img, int rows_to_crop, int cols_to_crop) {
+hdr_isp::EigenImage Crop::crop_eigen(const hdr_isp::EigenImage& img, int rows_to_crop, int cols_to_crop) {
+    if (rows_to_crop || cols_to_crop) {
+        if (rows_to_crop % 4 == 0 && cols_to_crop % 4 == 0) {
+            int start_row = rows_to_crop / 2;
+            int end_row = img.rows() - rows_to_crop / 2;
+            int start_col = cols_to_crop / 2;
+            int end_col = img.cols() - cols_to_crop / 2;
+            
+            // Use Eigen's block operation for cropping
+            Eigen::MatrixXf cropped_data = img.data().block(start_row, start_col, 
+                                                           end_row - start_row, 
+                                                           end_col - start_col);
+            return hdr_isp::EigenImage(cropped_data);
+        } else {
+            std::cout << "   - Input/Output heights are not compatible."
+                      << " Bayer pattern will be disturbed if cropped!" << std::endl;
+        }
+    }
+    return img;
+}
+
+cv::Mat Crop::crop_opencv(const cv::Mat& img, int rows_to_crop, int cols_to_crop) {
     if (rows_to_crop || cols_to_crop) {
         if (rows_to_crop % 4 == 0 && cols_to_crop % 4 == 0) {
             int start_row = rows_to_crop / 2;
@@ -63,7 +85,27 @@ cv::Mat Crop::apply_cropping() {
     int crop_cols = old_size_.second - new_size_.second;
     cv::Mat cropped_img;
 
-    cropped_img = crop(img_, crop_rows, crop_cols);
+    if (use_eigen_) {
+        // Use Eigen implementation
+        if (is_debug_) {
+            std::cout << "   - Using Eigen implementation for cropping" << std::endl;
+        }
+        
+        // Convert to Eigen format
+        hdr_isp::EigenImage eigen_img = hdr_isp::EigenImage::fromOpenCV(img_);
+        
+        // Apply cropping using Eigen
+        hdr_isp::EigenImage cropped_eigen = crop_eigen(eigen_img, crop_rows, crop_cols);
+        
+        // Convert back to OpenCV format
+        cropped_img = cropped_eigen.toOpenCV(img_.type());
+    } else {
+        // Use OpenCV implementation (fallback)
+        if (is_debug_) {
+            std::cout << "   - Using OpenCV implementation for cropping" << std::endl;
+        }
+        cropped_img = crop_opencv(img_, crop_rows, crop_cols);
+    }
 
     if (is_debug_) {
         std::cout << "   - Number of rows cropped = " << crop_rows << std::endl;
@@ -94,6 +136,7 @@ cv::Mat Crop::execute() {
 
     // Crop image if enabled
     if (enable_) {
+        std::cout << "line 97" << std::endl;
         auto start = std::chrono::high_resolution_clock::now();
         img_ = apply_cropping();
         auto end = std::chrono::high_resolution_clock::now();

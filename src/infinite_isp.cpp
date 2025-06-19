@@ -170,7 +170,33 @@ cv::Mat InfiniteISP::run_pipeline(bool visualize_output, bool save_intermediate)
         fs::create_directories(intermediate_dir);
     }
 
-    // Apply black level correction if enabled
+    // =====================================================================
+    // 1. Cropping
+    std::cout << "Cropping" << std::endl;
+    if (parm_cro_["is_enable"].as<bool>()) {
+        Crop crop(img, config_["platform"], config_["sensor_info"], parm_cro_);
+        img = crop.execute();
+        if (save_intermediate) {
+            fs::path output_path = intermediate_dir / "crop.png";
+            cv::imwrite(output_path.string(), img);
+        }
+    }
+
+    // =====================================================================
+    // 2. Dead pixels correction
+    std::cout << "Dead pixels correction" << std::endl;
+    if (parm_dpc_["is_enable"].as<bool>()) {
+        DeadPixelCorrection dpc(img, config_["platform"], config_["sensor_info"], parm_dpc_);
+        img = dpc.execute();
+        if (save_intermediate) {
+            fs::path output_path = intermediate_dir / "dead_pixel_correction.png";
+            cv::imwrite(output_path.string(), img);
+        }
+    }
+
+    // =====================================================================
+    // 3. Black level correction
+    std::cout << "Black level correction" << std::endl;
     if (parm_blc_["is_enable"].as<bool>()) {
         BlackLevelCorrection blc(img, config_["sensor_info"], parm_blc_);
         img = blc.execute();
@@ -183,7 +209,65 @@ cv::Mat InfiniteISP::run_pipeline(bool visualize_output, bool save_intermediate)
         }
     }
 
-    // Apply bayer noise reduction if enabled
+    // =====================================================================
+    // 4. Decompanding (Piecewise curve)
+    std::cout << "Decompanding (Piecewise curve)" << std::endl;
+    if (parm_cmpd_["is_enable"].as<bool>()) {
+        PiecewiseCurve pwc(img, config_["platform"], config_["sensor_info"], parm_cmpd_);
+        img = pwc.execute();
+        if (save_intermediate) {
+            fs::path output_path = intermediate_dir / "piecewise_curve.png";
+            cv::imwrite(output_path.string(), img);
+        }
+    }
+
+    // =====================================================================
+    // 5. OECF
+    std::cout << "OECF" << std::endl;
+    if (parm_oec_["is_enable"].as<bool>()) {
+        OECF oecf(img, config_["platform"], config_["sensor_info"], parm_oec_);
+        img = oecf.execute();
+        if (save_intermediate) {
+            fs::path output_path = intermediate_dir / "oecf.png";
+            cv::imwrite(output_path.string(), img);
+        }
+    }
+
+    // =====================================================================
+    // 6. Digital Gain
+    std::cout << "Digital Gain" << std::endl;
+      
+    try {
+        DigitalGain dga(img, config_["platform"], config_["sensor_info"], parm_dga_);
+        auto [result_img, gain] = dga.execute();
+        img = result_img;
+        dga_current_gain_ = gain;
+        if (save_intermediate) {
+            fs::path output_path = intermediate_dir / "digital_gain.png";
+            cv::imwrite(output_path.string(), img);
+        }
+    }
+    catch (const std::exception& e) {
+        std::cerr << "Exception in DigitalGain: " << e.what() << std::endl;
+        throw;
+    }
+    
+
+    // =====================================================================
+    // 7. Lens shading correction
+    std::cout << "Lens shading correction" << std::endl;
+    if (parm_lsc_["is_enable"].as<bool>()) {
+        LensShadingCorrection lsc(img, config_["platform"], config_["sensor_info"], parm_lsc_);
+        img = lsc.execute();
+        if (save_intermediate) {
+            fs::path output_path = intermediate_dir / "lens_shading_correction.png";
+            cv::imwrite(output_path.string(), img);
+        }
+    }
+
+    // =====================================================================
+    // 8. Bayer noise reduction
+    std::cout << "Bayer noise reduction" << std::endl;
     if (parm_bnr_["is_enable"].as<bool>()) {
         BayerNoiseReduction bnr(img, config_["sensor_info"], parm_bnr_);
         img = bnr.execute();
@@ -196,7 +280,9 @@ cv::Mat InfiniteISP::run_pipeline(bool visualize_output, bool save_intermediate)
         }
     }
 
-    // Apply auto white balance if enabled
+    // =====================================================================
+    // 9. Auto White Balance
+    std::cout << "Auto White Balance" << std::endl;
     if (parm_awb_["is_enable"].as<bool>()) {
         std::cout << "Applying auto white balance..." << std::endl;
         AutoWhiteBalance awb(img, config_["sensor_info"], parm_awb_);
@@ -210,8 +296,35 @@ cv::Mat InfiniteISP::run_pipeline(bool visualize_output, bool save_intermediate)
             cv::imwrite(output_path.string(), save_img);
         }
     }
-    std::cout << "line 205" << std::endl;
-    // Apply demosaic if enabled
+
+    // =====================================================================
+    // 10. White balancing
+    std::cout << "White balancing" << std::endl;
+    if (parm_wbc_["is_enable"].as<bool>()) {
+        std::cout << "Applying white balance..." << std::endl;
+        WhiteBalance wb(img, config_["platform"], config_["sensor_info"], parm_wbc_);
+        img = wb.execute();
+        if (save_intermediate) {
+            fs::path output_path = intermediate_dir / "white_balance.png";
+            cv::imwrite(output_path.string(), img);
+        }
+    }
+
+    // =====================================================================
+    // 11. HDR tone mapping
+    std::cout << "HDR tone mapping" << std::endl;
+    if (parm_durand_["is_enable"].as<bool>()) {
+        HDRDurandToneMapping hdr(img, config_["platform"], config_["sensor_info"], parm_durand_);
+        img = hdr.execute();
+        if (save_intermediate) {
+            fs::path output_path = intermediate_dir / "hdr_tone_mapping.png";
+            cv::imwrite(output_path.string(), img);
+        }
+    }
+
+    // =====================================================================
+    // 12. CFA demosaicing
+    std::cout << "CFA demosaicing" << std::endl;
     if (parm_dem_["is_enable"].as<bool>()) {
         std::cout << "Applying demosaic..." << std::endl;
         DemosaicAlgorithm algorithm = parm_dem_["algorithm"].as<std::string>() == "opencv" ? 
@@ -227,7 +340,23 @@ cv::Mat InfiniteISP::run_pipeline(bool visualize_output, bool save_intermediate)
         }
     }
 
-    // Apply gamma correction if enabled
+    // =====================================================================
+    // 13. Color correction matrix
+    std::cout << "Color correction matrix" << std::endl;
+    if (parm_ccm_["is_enable"].as<bool>()) {
+        ColorCorrectionMatrix ccm(img, config_["sensor_info"], parm_ccm_);
+        img = ccm.execute();
+        if (save_intermediate) {
+            fs::path output_path = intermediate_dir / "color_correction_matrix.png";
+            cv::Mat save_img;
+            img.convertTo(save_img, CV_8U, 255.0 / ((1 << sensor_info_.bit_depth) - 1));
+            cv::imwrite(output_path.string(), save_img);
+        }
+    }
+
+    // =====================================================================
+    // 14. Gamma
+    std::cout << "Gamma" << std::endl;
     if (parm_gmc_["is_enable"].as<bool>()) {
         std::cout << "Applying gamma correction..." << std::endl;
         GammaCorrection gamma(img, config_["platform"], config_["sensor_info"], parm_gmc_);
@@ -239,7 +368,9 @@ cv::Mat InfiniteISP::run_pipeline(bool visualize_output, bool save_intermediate)
         }
     }
 
-    // Apply auto exposure if enabled
+    // =====================================================================
+    // 15. Auto-Exposure
+    std::cout << "Auto-Exposure" << std::endl;
     if (parm_ae_["is_enable"].as<bool>()) {
         std::cout << "Applying auto exposure..." << std::endl;
         AutoExposure ae(img, config_["sensor_info"], parm_ae_);
@@ -253,19 +384,9 @@ cv::Mat InfiniteISP::run_pipeline(bool visualize_output, bool save_intermediate)
         }
     }
 
-    // Apply color correction matrix if enabled
-    if (parm_ccm_["is_enable"].as<bool>()) {
-        ColorCorrectionMatrix ccm(img, config_["sensor_info"], parm_ccm_);
-        img = ccm.execute();
-        if (save_intermediate) {
-            fs::path output_path = intermediate_dir / "color_correction_matrix.png";
-            cv::Mat save_img;
-            img.convertTo(save_img, CV_8U, 255.0 / ((1 << sensor_info_.bit_depth+2) - 1));
-            cv::imwrite(output_path.string(), save_img);
-        }
-    }
-
-    // Apply color space conversion if enabled
+    // =====================================================================
+    // 16. Color space conversion
+    std::cout << "Color space conversion" << std::endl;
     if (parm_csc_["is_enable"].as<bool>()) {
         ColorSpaceConversion csc(img, config_["sensor_info"], parm_csc_, parm_cse_);
         img = csc.execute();
@@ -277,49 +398,9 @@ cv::Mat InfiniteISP::run_pipeline(bool visualize_output, bool save_intermediate)
         }
     }
 
-    // Apply crop if enabled
-    if (parm_cro_["is_enable"].as<bool>()) {
-        Crop crop(img, config_["platform"], config_["sensor_info"], parm_cro_);
-        img = crop.execute();
-        if (save_intermediate) {
-            fs::path output_path = intermediate_dir / "crop.png";
-            cv::imwrite(output_path.string(), img);
-        }
-    }
-
-    // Apply dead pixel correction if enabled
-    if (parm_dpc_["is_enable"].as<bool>()) {
-        DeadPixelCorrection dpc(img, config_["platform"], config_["sensor_info"], parm_dpc_);
-        img = dpc.execute();
-        if (save_intermediate) {
-            fs::path output_path = intermediate_dir / "dead_pixel_correction.png";
-            cv::imwrite(output_path.string(), img);
-        }
-    }
-
-    // Apply digital gain if enabled
-    if (parm_dga_["is_enable"].as<bool>()) {
-        DigitalGain dga(img, config_["platform"], config_["sensor_info"], parm_dga_);
-        auto [result_img, gain] = dga.execute();
-        img = result_img;
-        dga_current_gain_ = gain;
-        if (save_intermediate) {
-            fs::path output_path = intermediate_dir / "digital_gain.png";
-            cv::imwrite(output_path.string(), img);
-        }
-    }
-
-    // Apply HDR tone mapping if enabled
-    if (parm_durand_["is_enable"].as<bool>()) {
-        HDRDurandToneMapping hdr(img, config_["platform"], config_["sensor_info"], parm_durand_);
-        img = hdr.execute();
-        if (save_intermediate) {
-            fs::path output_path = intermediate_dir / "hdr_tone_mapping.png";
-            cv::imwrite(output_path.string(), img);
-        }
-    }
-
-    // Apply LDCI if enabled
+    // =====================================================================
+    // 17. Local Dynamic Contrast Improvement
+    std::cout << "Local Dynamic Contrast Improvement" << std::endl;
     if (parm_ldci_["is_enable"].as<bool>()) {
         LDCI ldci(img, config_["platform"], config_["sensor_info"], parm_ldci_);
         img = ldci.execute();
@@ -329,68 +410,9 @@ cv::Mat InfiniteISP::run_pipeline(bool visualize_output, bool save_intermediate)
         }
     }
 
-    // Apply lens shading correction if enabled
-    if (parm_lsc_["is_enable"].as<bool>()) {
-        LensShadingCorrection lsc(img, config_["platform"], config_["sensor_info"], parm_lsc_);
-        img = lsc.execute();
-        if (save_intermediate) {
-            fs::path output_path = intermediate_dir / "lens_shading_correction.png";
-            cv::imwrite(output_path.string(), img);
-        }
-    }
-
-    // Apply 2D noise reduction if enabled
-    if (parm_2dn_["is_enable"].as<bool>()) {
-        NoiseReduction2D nr2d(img, config_["platform"], config_["sensor_info"], parm_2dn_);
-        img = nr2d.execute();
-        if (save_intermediate) {
-            fs::path output_path = intermediate_dir / "2d_noise_reduction.png";
-            cv::imwrite(output_path.string(), img);
-        }
-    }
-
-    // Apply OECF if enabled
-    if (parm_oec_["is_enable"].as<bool>()) {
-        OECF oecf(img, config_["platform"], config_["sensor_info"], parm_oec_);
-        img = oecf.execute();
-        if (save_intermediate) {
-            fs::path output_path = intermediate_dir / "oecf.png";
-            cv::imwrite(output_path.string(), img);
-        }
-    }
-
-    // Apply piecewise curve if enabled
-    if (parm_cmpd_["is_enable"].as<bool>()) {
-        PiecewiseCurve pwc(img, config_["platform"], config_["sensor_info"], parm_cmpd_);
-        img = pwc.execute();
-        if (save_intermediate) {
-            fs::path output_path = intermediate_dir / "piecewise_curve.png";
-            cv::imwrite(output_path.string(), img);
-        }
-    }
-
-    // Apply RGB conversion if enabled
-    if (parm_rgb_["is_enable"].as<bool>()) {
-        RGBConversion rgb_conv(img, config_["platform"], config_["sensor_info"], parm_rgb_, parm_csc_);
-        img = rgb_conv.execute();
-        if (save_intermediate) {
-            fs::path output_path = intermediate_dir / "rgb_conversion.png";
-            cv::imwrite(output_path.string(), img);
-        }
-    }
-
-    // Apply scaling if enabled
-    if (parm_sca_["is_enable"].as<bool>()) {
-        std::cout << "Applying scaling..." << std::endl;
-        Scale scale(img, config_["platform"], config_["sensor_info"], parm_sca_, parm_csc_["conv_std"].as<int>());
-        img = scale.execute();
-        if (save_intermediate) {
-            fs::path output_path = intermediate_dir / "scale.png";
-            cv::imwrite(output_path.string(), img);
-        }
-    }
-
-    // Apply sharpening if enabled
+    // =====================================================================
+    // 18. Sharpening
+    std::cout << "Sharpening" << std::endl;
     if (parm_sha_["is_enable"].as<bool>()) {
         std::cout << "Applying sharpening..." << std::endl;
         Sharpen sharpen(img, config_["platform"], config_["sensor_info"], parm_sha_, 
@@ -402,18 +424,46 @@ cv::Mat InfiniteISP::run_pipeline(bool visualize_output, bool save_intermediate)
         }
     }
 
-    // Apply white balance if enabled
-    if (parm_wbc_["is_enable"].as<bool>()) {
-        std::cout << "Applying white balance..." << std::endl;
-        WhiteBalance wb(img, config_["platform"], config_["sensor_info"], parm_wbc_);
-        img = wb.execute();
+    // =====================================================================
+    // 19. 2d noise reduction
+    std::cout << "2d noise reduction" << std::endl;
+    if (parm_2dn_["is_enable"].as<bool>()) {
+        NoiseReduction2D nr2d(img, config_["platform"], config_["sensor_info"], parm_2dn_);
+        img = nr2d.execute();
         if (save_intermediate) {
-            fs::path output_path = intermediate_dir / "white_balance.png";
+            fs::path output_path = intermediate_dir / "2d_noise_reduction.png";
             cv::imwrite(output_path.string(), img);
         }
     }
 
-    // Apply YUV conversion format if enabled
+    // =====================================================================
+    // 20. RGB conversion
+    std::cout << "RGB conversion" << std::endl;
+    if (parm_rgb_["is_enable"].as<bool>()) {
+        RGBConversion rgb_conv(img, config_["platform"], config_["sensor_info"], parm_rgb_, parm_csc_);
+        img = rgb_conv.execute();
+        if (save_intermediate) {
+            fs::path output_path = intermediate_dir / "rgb_conversion.png";
+            cv::imwrite(output_path.string(), img);
+        }
+    }
+
+    // =====================================================================
+    // 21. Scaling
+    std::cout << "Scaling" << std::endl;
+    if (parm_sca_["is_enable"].as<bool>()) {
+        std::cout << "Applying scaling..." << std::endl;
+        Scale scale(img, config_["platform"], config_["sensor_info"], parm_sca_, parm_csc_["conv_std"].as<int>());
+        img = scale.execute();
+        if (save_intermediate) {
+            fs::path output_path = intermediate_dir / "scale.png";
+            cv::imwrite(output_path.string(), img);
+        }
+    }
+
+    // =====================================================================
+    // 22. YUV saving format 444, 422 etc
+    std::cout << "YUV saving format 444, 422 etc" << std::endl;
     if (parm_yuv_["is_enable"].as<bool>()) {
         std::cout << "Applying YUV conversion format..." << std::endl;
         YUVConvFormat yuv_conv(img, config_["platform"], config_["sensor_info"], parm_yuv_);

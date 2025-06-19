@@ -3,6 +3,7 @@
 #include <opencv2/opencv.hpp>
 #include <string>
 #include <yaml-cpp/yaml.h>
+#include "../../common/eigen_utils.hpp"
 
 class DeadPixelCorrection {
 public:
@@ -12,7 +13,9 @@ public:
     cv::Mat execute();
 
 private:
-    cv::Mat correct_dead_pixels();
+    cv::Mat correct_dead_pixels_opencv();
+    hdr_isp::EigenImage correct_dead_pixels_eigen(const hdr_isp::EigenImage& img);
+    float calculate_median_eigen(const hdr_isp::EigenImage& neighborhood, const hdr_isp::EigenImage& dead_mask);
     void save(const std::string& filename_tag);
 
     cv::Mat img_;
@@ -24,4 +27,5 @@ private:
     bool is_save_;
     int bit_depth_;
     std::string bayer_pattern_;
+    bool use_eigen_; // Flag to choose between Eigen and OpenCV implementation
 }; 

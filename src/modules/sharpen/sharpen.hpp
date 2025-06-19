@@ -3,6 +3,7 @@
 #include <opencv2/opencv.hpp>
 #include <string>
 #include <yaml-cpp/yaml.h>
+#include "../../common/eigen_utils.hpp"
 
 class Sharpen {
 public:
@@ -12,7 +13,8 @@ public:
     cv::Mat execute();
 
 private:
-    cv::Mat apply_sharpen();
+    cv::Mat apply_sharpen_opencv();
+    hdr_isp::EigenImage apply_sharpen_eigen();
     void get_sharpen_params();
     void save(const std::string& filename);
 
@@ -28,4 +30,5 @@ private:
     float strength_;
     int kernel_size_;
     int output_bit_depth_;
+    bool use_eigen_;
 }; 
