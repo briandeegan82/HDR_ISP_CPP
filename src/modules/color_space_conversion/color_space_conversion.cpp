@@ -20,13 +20,22 @@ ColorSpaceConversion::ColorSpaceConversion(const cv::Mat& img, const YAML::Node&
     , bit_depth_(sensor_info["output_bit_depth"].as<int>())
     , conv_std_(parm_csc["conv_standard"].as<int>())
     , is_save_(parm_csc["is_save"].as<bool>())
+    , use_eigen_(true) // Use Eigen by default
 {
     printImageStats(raw_, "Input raw image");
 }
 
 cv::Mat ColorSpaceConversion::execute() {
     auto start = std::chrono::high_resolution_clock::now();
-    cv::Mat result = rgb_to_yuv_8bit();
+    
+    cv::Mat result;
+    if (use_eigen_) {
+        hdr_isp::EigenImage eigen_result = rgb_to_yuv_8bit_eigen();
+        result = hdr_isp::eigen_to_opencv(eigen_result);
+    } else {
+        result = rgb_to_yuv_8bit();
+    }
+    
     auto end = std::chrono::high_resolution_clock::now();
     std::chrono::duration<double> duration = end - start;
     std::cout << "Color Space Conversion execution time: " << duration.count() << " seconds" << std::endl;
@@ -124,4 +133,66 @@ cv::Mat ColorSpaceConversion::rgb_to_yuv_8bit() {
     std::cout << "Total RGB to YUV conversion time: " << total_duration.count() << " seconds" << std::endl;
 
     return result;
+}
+
+hdr_isp::EigenImage ColorSpaceConversion::rgb_to_yuv_8bit_eigen() {
+    // Convert to Eigen 3-channel image
+    hdr_isp::EigenImage3C eigen_raw = hdr_isp::EigenImage3C::fromOpenCV(raw_);
+    
+    // Set up conversion matrix based on standard
+    Eigen::Matrix3f rgb2yuv_eigen;
+    if (conv_std_ == 1) {
+        // BT.709
+        rgb2yuv_eigen << 47, 157, 16,
+                        -26, -86, 112,
+                        112, -102, -10;
+        std::cout << "BT.709 Matrix (Eigen):" << std::endl;
+    } else {
+        // BT.601/407
+        rgb2yuv_eigen << 77, 150, 29,
+                        131, -110, -21,
+                        -44, -87, 138;
+        std::cout << "BT.601/407 Matrix (Eigen):" << std::endl;
+    }
+
+    // Apply color space transformation
+    hdr_isp::EigenImage3C yuv_3c = eigen_raw * rgb2yuv_eigen;
+    
+    // Convert to float and apply bit depth conversion
+    yuv_3c = yuv_3c * (1.0f / (1 << 8));
+    
+    // Round values
+    yuv_3c.r() = hdr_isp::EigenImage(yuv_3c.r().data().array().round().matrix());
+    yuv_3c.g() = hdr_isp::EigenImage(yuv_3c.g().data().array().round().matrix());
+    yuv_3c.b() = hdr_isp::EigenImage(yuv_3c.b().data().array().round().matrix());
+    
+    // Apply color saturation enhancement if enabled
+    if (parm_cse_["is_enable"].as<bool>()) {
+        double gain = parm_cse_["saturation_gain"].as<double>();
+        yuv_3c.g() = yuv_3c.g() * gain; // U channel
+        yuv_3c.b() = yuv_3c.b() * gain; // V channel
+    }
+
+    // Add DC offset
+    yuv_3c.r() = yuv_3c.r() + (1 << (bit_depth_ / 2));
+    yuv_3c.g() = yuv_3c.g() + (1 << (bit_depth_ - 1));
+    yuv_3c.b() = yuv_3c.b() + (1 << (bit_depth_ - 1));
+    
+    // Clip values
+    float max_val = static_cast<float>((1 << bit_depth_) - 1);
+    yuv_3c = yuv_3c.clip(0.0f, max_val);
+    
+    // Final normalization to 8-bit
+    yuv_3c = yuv_3c * (1.0f / (1 << (bit_depth_ - 8)));
+    yuv_3c.r() = hdr_isp::EigenImage(yuv_3c.r().data().array().round().matrix());
+    yuv_3c.g() = hdr_isp::EigenImage(yuv_3c.g().data().array().round().matrix());
+    yuv_3c.b() = hdr_isp::EigenImage(yuv_3c.b().data().array().round().matrix());
+    yuv_3c = yuv_3c.clip(0.0f, 255.0f);
+    
+    // Convert back to OpenCV and then to single channel for return
+    cv::Mat yuv_cv = yuv_3c.toOpenCV(CV_8UC3);
+    cv::Mat yuv_single;
+    cv::cvtColor(yuv_cv, yuv_single, cv::COLOR_BGR2GRAY);
+    
+    return hdr_isp::opencv_to_eigen(yuv_single);
 } 

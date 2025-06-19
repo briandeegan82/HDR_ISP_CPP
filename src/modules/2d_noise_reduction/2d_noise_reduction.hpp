@@ -3,6 +3,7 @@
 #include <opencv2/opencv.hpp>
 #include <string>
 #include <yaml-cpp/yaml.h>
+#include "../../common/eigen_utils.hpp"
 
 class NoiseReduction2D {
 public:
@@ -13,7 +14,9 @@ public:
 
 private:
     cv::Mat apply_noise_reduction();
+    hdr_isp::EigenImage apply_noise_reduction_eigen();
     cv::Mat apply_bilateral_filter(const cv::Mat& img);
+    hdr_isp::EigenImage apply_bilateral_filter_eigen(const hdr_isp::EigenImage& img);
     void save();
 
     cv::Mat img_;
@@ -27,4 +30,5 @@ private:
     float sigma_color_;
     int window_size_;
     int output_bit_depth_;
+    bool use_eigen_; // Use Eigen by default
 }; 

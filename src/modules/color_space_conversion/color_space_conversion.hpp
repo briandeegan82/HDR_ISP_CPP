@@ -3,6 +3,7 @@
 #include <opencv2/opencv.hpp>
 #include <string>
 #include <yaml-cpp/yaml.h>
+#include "../../common/eigen_utils.hpp"
 
 class ColorSpaceConversion {
 public:
@@ -13,6 +14,7 @@ public:
 
 private:
     cv::Mat rgb_to_yuv_8bit();
+    hdr_isp::EigenImage rgb_to_yuv_8bit_eigen();
 
     cv::Mat raw_;
     YAML::Node sensor_info_;
@@ -22,4 +24,5 @@ private:
     int conv_std_;
     cv::Mat rgb2yuv_mat_;
     bool is_save_;
+    bool use_eigen_; // Use Eigen by default
 }; 

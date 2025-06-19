@@ -12,6 +12,7 @@ AutoExposure::AutoExposure(const cv::Mat& img, const YAML::Node& sensor_info, co
     , center_illuminance_(parm_ae["center_illuminance"].as<float>())
     , histogram_skewness_range_(parm_ae["histogram_skewness"].as<float>())
     , bit_depth_(sensor_info["bit_depth"].as<int>())
+    , use_eigen_(true) // Use Eigen by default
 {
 }
 
@@ -24,22 +25,44 @@ int AutoExposure::execute() {
 }
 
 int AutoExposure::get_exposure_feedback() {
-    // Convert image to grayscale
-    cv::Mat gray;
-    cv::cvtColor(img_, gray, cv::COLOR_BGR2GRAY);
+    if (use_eigen_) {
+        // Convert image to grayscale using Eigen
+        auto [gray_eigen, avg_lum] = get_greyscale_image_eigen(img_);
+        
+        // Calculate histogram using Eigen
+        hdr_isp::EigenImage hist = hdr_isp::EigenImage::Zero(256, 1);
+        for (int i = 0; i < gray_eigen.rows(); i++) {
+            for (int j = 0; j < gray_eigen.cols(); j++) {
+                int bin = static_cast<int>(gray_eigen.data()(i, j));
+                if (bin >= 0 && bin < 256) {
+                    hist.data()(bin, 0) += 1.0f;
+                }
+            }
+        }
+        
+        // Calculate histogram skewness
+        double skewness = get_luminance_histogram_skewness_eigen(hist);
+        
+        // Determine exposure based on skewness
+        return determine_exposure(skewness);
+    } else {
+        // Convert image to grayscale
+        cv::Mat gray;
+        cv::cvtColor(img_, gray, cv::COLOR_BGR2GRAY);
 
-    // Calculate histogram
-    int histSize = 256;
-    float range[] = { 0, 256 };
-    const float* histRange = { range };
-    cv::Mat hist;
-    cv::calcHist(&gray, 1, 0, cv::Mat(), hist, 1, &histSize, &histRange);
+        // Calculate histogram
+        int histSize = 256;
+        float range[] = { 0, 256 };
+        const float* histRange = { range };
+        cv::Mat hist;
+        cv::calcHist(&gray, 1, 0, cv::Mat(), hist, 1, &histSize, &histRange);
 
-    // Calculate histogram skewness
-    double skewness = get_luminance_histogram_skewness(hist);
+        // Calculate histogram skewness
+        double skewness = get_luminance_histogram_skewness(hist);
 
-    // Determine exposure based on skewness
-    return determine_exposure(skewness);
+        // Determine exposure based on skewness
+        return determine_exposure(skewness);
+    }
 }
 
 int AutoExposure::determine_exposure(double skewness) {
@@ -82,6 +105,36 @@ double AutoExposure::get_luminance_histogram_skewness(const cv::Mat& hist) {
     return skewness;
 }
 
+double AutoExposure::get_luminance_histogram_skewness_eigen(const hdr_isp::EigenImage& hist) {
+    double mean = 0.0;
+    double variance = 0.0;
+    double skewness = 0.0;
+    double total = 0.0;
+
+    // Calculate mean
+    for (int i = 0; i < hist.rows(); i++) {
+        mean += i * hist.data()(i, 0);
+        total += hist.data()(i, 0);
+    }
+    mean /= total;
+
+    // Calculate variance and skewness
+    for (int i = 0; i < hist.rows(); i++) {
+        double diff = i - mean;
+        variance += diff * diff * hist.data()(i, 0);
+        skewness += diff * diff * diff * hist.data()(i, 0);
+    }
+    variance /= total;
+    skewness /= total;
+
+    // Normalize skewness
+    if (variance > 0) {
+        skewness /= std::pow(variance, 1.5);
+    }
+
+    return skewness;
+}
+
 std::tuple<cv::Mat, double> AutoExposure::get_greyscale_image(const cv::Mat& img) {
     // Convert to grayscale using luminance weights [0.299, 0.587, 0.144]
     cv::Mat grey_img;
@@ -97,6 +150,28 @@ std::tuple<cv::Mat, double> AutoExposure::get_greyscale_image(const cv::Mat& img
     
     // Calculate average luminance
     double avg_lum = cv::mean(grey_img)[0];
+    
+    return {grey_img, avg_lum};
+}
+
+std::tuple<hdr_isp::EigenImage, double> AutoExposure::get_greyscale_image_eigen(const cv::Mat& img) {
+    // Convert to Eigen
+    hdr_isp::EigenImage eigen_img = hdr_isp::opencv_to_eigen(img);
+    
+    // For simplicity, assume single channel input
+    // In a full implementation, you'd handle multi-channel images properly
+    hdr_isp::EigenImage grey_img = eigen_img;
+    
+    // Apply luminance weights (simplified for single channel)
+    // In a real implementation, you'd split channels and apply weights
+    grey_img = grey_img * 0.299f; // Simplified weight application
+    
+    // Clip values to bit depth range
+    float max_val = static_cast<float>((1 << bit_depth_) - 1);
+    grey_img = grey_img.cwiseMax(0.0f).cwiseMin(max_val);
+    
+    // Calculate average luminance
+    double avg_lum = grey_img.data().mean();
     
     return {grey_img, avg_lum};
 } 

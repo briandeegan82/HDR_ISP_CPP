@@ -39,11 +39,19 @@ public:
     
     // Static factory methods
     static EigenImage Zero(int rows, int cols) { return EigenImage(Eigen::MatrixXf::Zero(rows, cols)); }
+    static EigenImage Ones(int rows, int cols) { return EigenImage(Eigen::MatrixXf::Ones(rows, cols)); }
+    static EigenImage Constant(int rows, int cols, float value) { return EigenImage(Eigen::MatrixXf::Constant(rows, cols, value)); }
     
     // Element-wise operations
     EigenImage operator*(float scalar) const { return EigenImage(data_ * scalar); }
     EigenImage operator+(const EigenImage& other) const { return EigenImage(data_ + other.data_); }
     EigenImage operator-(const EigenImage& other) const { return EigenImage(data_ - other.data_); }
+    EigenImage operator+(float scalar) const { return EigenImage(data_.array() + scalar); }
+    EigenImage operator-(float scalar) const { return EigenImage(data_.array() - scalar); }
+    EigenImage operator/(float scalar) const { return EigenImage(data_ / scalar); }
+    
+    // Element-wise product
+    EigenImage cwiseProduct(const EigenImage& other) const { return EigenImage(data_.cwiseProduct(other.data_)); }
     
     // Clipping operations
     EigenImage clip(float min_val, float max_val) const;
@@ -68,6 +76,31 @@ public:
     // Assignment operators
     EigenImage& operator=(const EigenImage& other) {
         data_ = other.data_;
+        return *this;
+    }
+    
+    EigenImage& operator=(float scalar) {
+        data_.setConstant(scalar);
+        return *this;
+    }
+    
+    EigenImage& operator+=(const EigenImage& other) {
+        data_ += other.data_;
+        return *this;
+    }
+    
+    EigenImage& operator-=(const EigenImage& other) {
+        data_ -= other.data_;
+        return *this;
+    }
+    
+    EigenImage& operator*=(float scalar) {
+        data_ *= scalar;
+        return *this;
+    }
+    
+    EigenImage& operator/=(float scalar) {
+        data_ /= scalar;
         return *this;
     }
     

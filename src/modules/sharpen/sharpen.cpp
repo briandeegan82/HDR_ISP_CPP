@@ -108,12 +108,14 @@ hdr_isp::EigenImage Sharpen::apply_sharpen_eigen() {
     kernel = kernel / kernel.sum();
 
     // Create sharpening kernel (Laplacian of Gaussian)
-    Eigen::MatrixXf laplacian = Eigen::MatrixXf::Zero(kernel_size_, kernel_size_);
-    laplacian(center, center) = 1.0f;
-    laplacian = laplacian - kernel;
+    Eigen::MatrixXf kernel_laplacian = Eigen::MatrixXf::Ones(kernel_size_, kernel_size_);
+    kernel_laplacian /= kernel_size_ * kernel_size_;  // Simple average blur kernel
+
+    kernel = kernel - kernel_laplacian;
+    Eigen::MatrixXf laplacian = kernel_laplacian;
 
     // Apply convolution using Eigen
-    Eigen::MatrixXf sharpened_matrix = Eigen::MatrixXf::Zero(rows, cols);
+    hdr_isp::EigenImage sharpened = hdr_isp::EigenImage::Zero(rows, cols);
     
     int pad = kernel_size_ / 2;
     for (int i = pad; i < rows - pad; i++) {
@@ -121,15 +123,12 @@ hdr_isp::EigenImage Sharpen::apply_sharpen_eigen() {
             float sum = 0.0f;
             for (int ki = 0; ki < kernel_size_; ki++) {
                 for (int kj = 0; kj < kernel_size_; kj++) {
-                    sum += eigen_img.data()(i + ki - pad, j + kj - pad) * laplacian(ki, kj);
+                    sum += eigen_img(i + ki - pad, j + kj - pad) * laplacian(ki, kj);
                 }
             }
-            sharpened_matrix(i, j) = sum;
+            sharpened(i, j) = sum;
         }
     }
-
-    // Create EigenImage from the sharpened matrix
-    hdr_isp::EigenImage sharpened(sharpened_matrix);
 
     // Blend with original image
     hdr_isp::EigenImage result = eigen_img + sharpened * strength_;
