@@ -14,6 +14,7 @@ YUVConvFormat::YUVConvFormat(const cv::Mat& img, const YAML::Node& platform, con
     , is_enable_(parm_yuv["is_enable"].as<bool>())
     , is_save_(parm_yuv["is_save"].as<bool>())
     , use_eigen_(true) // Use Eigen by default
+    , is_debug_(parm_yuv["is_debug"].as<bool>())
 {
 }
 
@@ -166,30 +167,22 @@ void YUVConvFormat::save() {
 
 cv::Mat YUVConvFormat::execute() {
     if (is_enable_) {
-        if (platform_["rgb_output"].as<bool>()) {
-            if (parm_yuv_["is_debug"].as<bool>()) {
-                std::cout << "Invalid input for YUV conversion: RGB image format." << std::endl;
-            }
-            parm_yuv_["is_enable"] = false;
+        auto start = std::chrono::high_resolution_clock::now();
+        
+        if (use_eigen_) {
+            hdr_isp::EigenImage result = convert2yuv_format_eigen();
+            img_ = hdr_isp::eigen_to_opencv(result);
         } else {
-            auto start = std::chrono::high_resolution_clock::now();
-            
-            if (use_eigen_) {
-                hdr_isp::EigenImage eigen_result = convert2yuv_format_eigen();
-                img_ = hdr_isp::eigen_to_opencv(eigen_result);
-            } else {
-                img_ = convert2yuv_format_opencv();
-            }
-            
-            auto end = std::chrono::high_resolution_clock::now();
-            auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
-            
-            if (parm_yuv_["is_debug"].as<bool>()) {
-                std::cout << "YUV conversion completed in " << duration.count() << " ms" << std::endl;
-            }
+            img_ = convert2yuv_format_opencv();
+        }
+        
+        auto end = std::chrono::high_resolution_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+        
+        if (is_debug_) {
+            std::cout << "  Execution time: " << duration.count() / 1000.0 << "s" << std::endl;
         }
     }
 
-    save();
     return img_;
 } 

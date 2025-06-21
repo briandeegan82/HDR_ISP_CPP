@@ -15,8 +15,8 @@ LDCI::LDCI(const cv::Mat& img, const YAML::Node& platform,
     , is_enable_(params["is_enable"].as<bool>())
     , is_save_(params["is_save"].as<bool>())
     , is_debug_(params["is_debug"].as<bool>())
-    , strength_(params["strength"].as<float>())
-    , window_size_(params["window_size"].as<int>())
+    , strength_(params["clip_limit"].as<float>())
+    , window_size_(params["wind"].as<int>())
     , output_bit_depth_(sensor_info["output_bit_depth"].as<int>())
     , use_eigen_(true) // Use Eigen by default
 {
@@ -175,6 +175,52 @@ hdr_isp::EigenImage LDCI::apply_ldci_eigen() {
     return enhanced;
 }
 
+cv::Mat LDCI::apply_ldci_multi_channel() {
+    // Split the image into channels
+    std::vector<cv::Mat> channels;
+    cv::split(img_, channels);
+    
+    // Process each channel separately
+    std::vector<cv::Mat> processed_channels;
+    for (const auto& channel : channels) {
+        // Create a temporary LDCI instance for single channel processing
+        cv::Mat single_channel = channel.clone();
+        
+        // Convert to float for processing
+        cv::Mat float_img;
+        single_channel.convertTo(float_img, CV_32F);
+        
+        // Calculate local contrast
+        cv::Mat local_contrast = calculate_local_contrast_opencv(float_img);
+        
+        // Enhance contrast
+        cv::Mat enhanced = enhance_contrast_opencv(float_img, local_contrast);
+        
+        // Convert back to original bit depth
+        cv::Mat result;
+        if (output_bit_depth_ == 8) {
+            enhanced.convertTo(result, CV_8U, 255.0);
+        }
+        else if (output_bit_depth_ == 16) {
+            enhanced.convertTo(result, CV_16U, 65535.0);
+        }
+        else if (output_bit_depth_ == 32) {
+            enhanced.convertTo(result, CV_32F);
+        }
+        else {
+            throw std::runtime_error("Unsupported output bit depth. Use 8, 16, or 32.");
+        }
+        
+        processed_channels.push_back(result);
+    }
+    
+    // Merge the processed channels back
+    cv::Mat result;
+    cv::merge(processed_channels, result);
+    
+    return result;
+}
+
 void LDCI::save() {
     if (is_save_) {
         std::string output_path = "out_frames/intermediate/Out_ldci_" + 
@@ -187,11 +233,18 @@ cv::Mat LDCI::execute() {
     if (is_enable_) {
         auto start = std::chrono::high_resolution_clock::now();
         
-        if (use_eigen_) {
-            hdr_isp::EigenImage eigen_result = apply_ldci_eigen();
-            img_ = hdr_isp::eigen_to_opencv(eigen_result);
+        // Check if the image is multi-channel
+        if (img_.channels() > 1) {
+            // Use multi-channel processing
+            img_ = apply_ldci_multi_channel();
         } else {
-            img_ = apply_ldci_opencv();
+            // Use single-channel processing
+            if (use_eigen_) {
+                hdr_isp::EigenImage eigen_result = apply_ldci_eigen();
+                img_ = hdr_isp::eigen_to_opencv(eigen_result);
+            } else {
+                img_ = apply_ldci_opencv();
+            }
         }
         
         auto end = std::chrono::high_resolution_clock::now();
@@ -202,6 +255,5 @@ cv::Mat LDCI::execute() {
         }
     }
 
-    save();
     return img_;
 } 

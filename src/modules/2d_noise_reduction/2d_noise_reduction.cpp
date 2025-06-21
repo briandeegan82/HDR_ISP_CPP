@@ -154,47 +154,23 @@ void NoiseReduction2D::save() {
 }
 
 cv::Mat NoiseReduction2D::execute() {
-    if (!is_enable_) {
-        return img_;
-    }
-
-    auto start = std::chrono::high_resolution_clock::now();
-    
-    if (use_eigen_) {
-        if (img_.channels() == 1) {
-            // Single-channel processing
-            hdr_isp::EigenImage eigen_result = apply_noise_reduction_eigen();
-            img_ = hdr_isp::eigen_to_opencv(eigen_result);
-        } else if (img_.channels() == 3) {
-            // Multi-channel processing - apply noise reduction to each channel separately
-            std::vector<cv::Mat> channels;
-            cv::split(img_, channels);
-            
-            for (int i = 0; i < 3; ++i) {
-                // Create a temporary single-channel image
-                cv::Mat temp_img = channels[i];
-                
-                // Apply noise reduction to this channel
-                NoiseReduction2D temp_nr(temp_img, platform_, sensor_info_, params_);
-                channels[i] = temp_nr.apply_noise_reduction();
-            }
-            
-            // Merge channels back
-            cv::merge(channels, img_);
+    if (is_enable_) {
+        auto start = std::chrono::high_resolution_clock::now();
+        
+        if (use_eigen_) {
+            hdr_isp::EigenImage result = apply_noise_reduction_eigen();
+            img_ = hdr_isp::eigen_to_opencv(result);
         } else {
-            throw std::runtime_error("Unsupported number of channels. Use 1 or 3 channels.");
+            img_ = apply_noise_reduction();
         }
-    } else {
-        img_ = apply_noise_reduction();
-    }
-    
-    auto end = std::chrono::high_resolution_clock::now();
-    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
-    
-    if (is_debug_) {
-        std::cout << "  Execution time: " << duration.count() / 1000.0 << "s" << std::endl;
+        
+        auto end = std::chrono::high_resolution_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+        
+        if (is_debug_) {
+            std::cout << "  Execution time: " << duration.count() / 1000.0 << "s" << std::endl;
+        }
     }
 
-    save();
     return img_;
 } 

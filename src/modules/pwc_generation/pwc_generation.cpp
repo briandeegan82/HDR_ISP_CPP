@@ -18,6 +18,7 @@ PiecewiseCurve::PiecewiseCurve(cv::Mat& img, const YAML::Node& platform, const Y
     , companded_pout_(parm_cmpd["companded_pout"].as<std::vector<int>>())
     , is_save_(parm_cmpd["is_save"].as<bool>())
     , use_eigen_(true) // Use Eigen by default
+    , is_debug_(parm_cmpd["is_debug"].as<bool>())
 {
 }
 
@@ -67,24 +68,24 @@ void PiecewiseCurve::save() {
 }
 
 cv::Mat PiecewiseCurve::execute() {
-    if (!enable_) {
-        save();
-        return img_;
-    }
-    if (use_eigen_) {
+    if (is_enable_) {
         auto start = std::chrono::high_resolution_clock::now();
-        hdr_isp::EigenImage eigen_img = hdr_isp::EigenImage::fromOpenCV(img_);
-        hdr_isp::EigenImage result = execute_eigen();
-        result.data() = result.data().cwiseMax(0.0f); // Ensure no negative values
-        result.data() = result.data().unaryExpr([](float v) { return std::max(0.0f, v); });
-        result.toOpenCV(img_.type()).copyTo(img_);
+        
+        if (use_eigen_) {
+            hdr_isp::EigenImage result = execute_eigen();
+            img_ = hdr_isp::eigen_to_opencv(result);
+        } else {
+            img_ = execute_opencv();
+        }
+        
         auto end = std::chrono::high_resolution_clock::now();
-        std::chrono::duration<double> duration = end - start;
-        std::cout << "PWC generation (Eigen) execution time: " << duration.count() << "s" << std::endl;
-    } else {
-        img_ = execute_opencv();
+        auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+        
+        if (is_debug_) {
+            std::cout << "  Execution time: " << duration.count() / 1000.0 << "s" << std::endl;
+        }
     }
-    save();
+
     return img_;
 }
 

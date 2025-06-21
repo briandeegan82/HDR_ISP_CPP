@@ -54,6 +54,8 @@ private:
     std::string bayer_pattern_;
     int bit_depth_;
     bool is_save_;
+    bool is_debug_;
+    bool is_enable_;
     DemosaicAlgorithm algorithm_;
     bool use_eigen_; // Use Eigen by default
 

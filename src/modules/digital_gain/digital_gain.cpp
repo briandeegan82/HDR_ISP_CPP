@@ -203,24 +203,26 @@ void DigitalGain::save() {
     }
 }
 
-std::pair<cv::Mat, int> DigitalGain::execute() {
-    std::cout << "Digital Gain Execute" << std::endl;
-    auto start = std::chrono::high_resolution_clock::now();
+std::pair<cv::Mat, float> DigitalGain::execute() {
+    float applied_gain = gains_array_[current_gain_];
     
-    if (use_eigen_) {
-        hdr_isp::EigenImage eigen_result = apply_digital_gain_eigen();
-        img_ = hdr_isp::eigen_to_opencv(eigen_result);
-    } else {
-        img_ = apply_digital_gain_opencv();
-    }
-    
-    auto end = std::chrono::high_resolution_clock::now();
-    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
-    
-    if (is_debug_) {
-        std::cout << "  Execution time: " << duration.count() / 1000.0 << "s" << std::endl;
+    if (is_auto_) {
+        auto start = std::chrono::high_resolution_clock::now();
+        
+        if (use_eigen_) {
+            hdr_isp::EigenImage result = apply_digital_gain_eigen();
+            img_ = hdr_isp::eigen_to_opencv(result);
+        } else {
+            img_ = apply_digital_gain_opencv();
+        }
+        
+        auto end = std::chrono::high_resolution_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+        
+        if (is_debug_) {
+            std::cout << "  Execution time: " << duration.count() / 1000.0 << "s" << std::endl;
+        }
     }
 
-    save();
-    return std::make_pair(img_, current_gain_);
+    return {img_, applied_gain};
 } 

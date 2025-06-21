@@ -28,5 +28,6 @@ private:
 
     bool is_enable_;
     bool is_save_;
+    bool is_debug_;
     bool use_eigen_;
 }; 

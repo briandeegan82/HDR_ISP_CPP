@@ -237,8 +237,8 @@ cv::Mat HDRDurandToneMapping::execute() {
         auto start = std::chrono::high_resolution_clock::now();
         
         if (use_eigen_) {
-            hdr_isp::EigenImage eigen_result = apply_tone_mapping_eigen();
-            img_ = hdr_isp::eigen_to_opencv(eigen_result);
+            hdr_isp::EigenImage result = apply_tone_mapping_eigen();
+            img_ = hdr_isp::eigen_to_opencv(result);
         } else {
             img_ = apply_tone_mapping();
         }
@@ -251,6 +251,5 @@ cv::Mat HDRDurandToneMapping::execute() {
         }
     }
 
-    save();
     return img_;
 } 

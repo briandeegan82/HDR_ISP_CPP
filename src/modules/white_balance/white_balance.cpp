@@ -36,7 +36,6 @@ cv::Mat WhiteBalance::execute()
         std::cout << "  Execution time: " << duration.count() << "s" << std::endl;
     }
 
-    save();
     return img_;
 }
 

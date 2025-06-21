@@ -167,45 +167,23 @@ void Scale::save() {
 }
 
 cv::Mat Scale::execute() {
-    std::cout << "Scale = " << (enable_ ? "true" : "false") << std::endl;
-
     if (enable_) {
         auto start = std::chrono::high_resolution_clock::now();
         
         if (use_eigen_) {
-            if (img_.channels() == 1) {
-                // Single-channel processing
-                hdr_isp::EigenImage eigen_result = apply_scaling_eigen();
-                img_ = hdr_isp::eigen_to_opencv(eigen_result);
-            } else if (img_.channels() == 3) {
-                // Multi-channel processing - scale each channel separately
-                std::vector<cv::Mat> channels;
-                cv::split(img_, channels);
-                std::vector<cv::Mat> scaled_channels;
-
-                for (int i = 0; i < 3; ++i) {
-                    // Create a temporary single-channel image
-                    cv::Mat temp_img = channels[i];
-                    
-                    // Apply scaling to this channel
-                    Scale temp_scale(temp_img, platform_, sensor_info_, parm_sca_, conv_std_);
-                    scaled_channels.push_back(temp_scale.apply_scaling_eigen().toOpenCV());
-                }
-                
-                // Merge channels back
-                cv::merge(scaled_channels, img_);
-                std::cout << "  Multi-channel image detected - scaled each channel separately" << std::endl;
-            } else {
-                throw std::runtime_error("Unsupported number of channels. Use 1 or 3 channels.");
-            }
+            hdr_isp::EigenImage result = apply_scaling_eigen();
+            img_ = hdr_isp::eigen_to_opencv(result);
         } else {
             img_ = apply_scaling_opencv();
         }
         
         auto end = std::chrono::high_resolution_clock::now();
-        std::chrono::duration<double> duration = end - start;
-        std::cout << "  Execution time: " << duration.count() << "s" << std::endl;
+        auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+        
+        if (is_debug_) {
+            std::cout << "  Execution time: " << duration.count() / 1000.0 << "s" << std::endl;
+        }
     }
-    save();
+
     return img_;
 } 

@@ -158,7 +158,7 @@ cv::Mat InfiniteISP::run_pipeline(bool visualize_output, bool save_intermediate)
     // Create output directory for intermediate images if needed
     fs::path intermediate_dir;
     if (save_intermediate) {
-        intermediate_dir = fs::path("out_frames/intermediate");
+        intermediate_dir = fs::path(PROJECT_ROOT_DIR) / "out_frames" / "intermediate";
         fs::create_directories(intermediate_dir);
     }
 
@@ -553,7 +553,7 @@ void InfiniteISP::execute(const std::string& img_path, bool save_intermediate) {
     }
 
     // Save final output
-    fs::path output_dir = "out_frames";
+    fs::path output_dir = fs::path(PROJECT_ROOT_DIR) / "out_frames";
     fs::create_directories(output_dir);
     fs::path output_path = output_dir / (out_file_ + timestamp + ".png");
     cv::imwrite(output_path.string(), final_img);

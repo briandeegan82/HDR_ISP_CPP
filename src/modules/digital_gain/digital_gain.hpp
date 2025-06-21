@@ -11,7 +11,7 @@ public:
     DigitalGain(const cv::Mat& img, const YAML::Node& platform,
                 const YAML::Node& sensor_info, const YAML::Node& parm_dga);
 
-    std::pair<cv::Mat, int> execute();
+    std::pair<cv::Mat, float> execute();
 
 private:
     cv::Mat apply_digital_gain_opencv();

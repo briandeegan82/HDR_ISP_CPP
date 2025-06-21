@@ -14,6 +14,7 @@ GammaCorrection::GammaCorrection(const cv::Mat& img, const YAML::Node& platform,
     , output_bit_depth_(sensor_info["output_bit_depth"].as<int>())
     , parm_gmm_(parm_gmm)
     , is_save_(parm_gmm["is_save"].as<bool>())
+    , is_debug_(parm_gmm["is_debug"].as<bool>())
     , platform_(platform)
     , use_eigen_(true) // Use Eigen by default
 {
@@ -110,15 +111,20 @@ void GammaCorrection::save() {
 cv::Mat GammaCorrection::execute() {
     if (enable_) {
         auto start = std::chrono::high_resolution_clock::now();
+        
         if (use_eigen_) {
             img_ = apply_gamma_eigen();
         } else {
             img_ = apply_gamma_opencv();
         }
+        
         auto end = std::chrono::high_resolution_clock::now();
-        std::chrono::duration<double> elapsed = end - start;
-        std::cout << "  Execution time: " << elapsed.count() << "s" << std::endl;
+        auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+        
+        if (is_debug_) {
+            std::cout << "  Execution time: " << duration.count() / 1000.0 << "s" << std::endl;
+        }
     }
-    save();
+
     return img_;
 } 

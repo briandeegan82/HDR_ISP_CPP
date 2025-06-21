@@ -22,5 +22,6 @@ private:
     const YAML::Node& parm_oecf_;
     bool enable_;
     bool is_save_;
+    bool is_debug_;
     bool use_eigen_; // Flag to choose between Eigen and OpenCV implementation
 }; 

@@ -14,6 +14,7 @@ OECF::OECF(cv::Mat& img, const YAML::Node& platform, const YAML::Node& sensor_in
     , enable_(parm_oecf["is_enable"].as<bool>())
     , is_save_(parm_oecf["is_save"].as<bool>())
     , use_eigen_(true) // Use Eigen by default
+    , is_debug_(parm_oecf["is_debug"].as<bool>())
 {
 }
 
@@ -183,16 +184,21 @@ void OECF::save() {
 cv::Mat OECF::execute() {
     if (enable_) {
         auto start = std::chrono::high_resolution_clock::now();
+        
         if (use_eigen_) {
             hdr_isp::EigenImage result = apply_oecf_eigen();
-            result.toOpenCV(img_.type()).copyTo(img_);
+            img_ = hdr_isp::eigen_to_opencv(result);
         } else {
             img_ = apply_oecf_opencv();
         }
+        
         auto end = std::chrono::high_resolution_clock::now();
-        std::chrono::duration<double> duration = end - start;
-        std::cout << "OECF execution time: " << duration.count() << "s" << std::endl;
+        auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+        
+        if (is_debug_) {
+            std::cout << "  Execution time: " << duration.count() / 1000.0 << "s" << std::endl;
+        }
     }
-    save();
+
     return img_;
 } 

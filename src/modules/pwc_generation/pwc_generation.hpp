@@ -32,5 +32,6 @@ private:
     std::vector<int> companded_pin_;
     std::vector<int> companded_pout_;
     bool is_save_;
+    bool is_debug_;
     bool use_eigen_; // Flag to choose between Eigen and OpenCV implementation
 }; 

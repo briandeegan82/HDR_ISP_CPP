@@ -24,6 +24,7 @@ private:
     int output_bit_depth_;
     YAML::Node parm_gmm_;
     bool is_save_;
+    bool is_debug_;
     YAML::Node platform_;
     bool use_eigen_;
 }; 

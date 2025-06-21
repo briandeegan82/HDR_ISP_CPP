@@ -14,6 +14,7 @@ RGBConversion::RGBConversion(cv::Mat& img, const YAML::Node& platform, const YAM
     , parm_csc_(parm_csc)
     , enable_(parm_rgb["is_enable"].as<bool>())
     , is_save_(parm_rgb["is_save"].as<bool>())
+    , is_debug_(parm_rgb["is_debug"].as<bool>())
     , bit_depth_(sensor_info["output_bit_depth"].as<int>())
     , conv_std_(parm_csc["conv_standard"].as<int>())
     , yuv_img_(img)
@@ -186,30 +187,19 @@ cv::Mat RGBConversion::execute() {
         auto start = std::chrono::high_resolution_clock::now();
         
         if (use_eigen_) {
-            if (yuv_img_.channels() == 1) {
-                // Single-channel processing (original YUV format)
-                hdr_isp::EigenImage eigen_result = yuv_to_rgb_eigen();
-                img_ = hdr_isp::eigen_to_opencv(eigen_result);
-            } else if (yuv_img_.channels() == 3) {
-                // Multi-channel processing - assume it's already RGB
-                // For Eigen path, we need to handle the single-channel return and convert back
-                hdr_isp::EigenImage eigen_result = yuv_to_rgb_eigen();
-                // Convert single-channel result back to 3-channel by replicating
-                cv::Mat single_channel = hdr_isp::eigen_to_opencv(eigen_result);
-                std::vector<cv::Mat> channels = {single_channel, single_channel, single_channel};
-                cv::merge(channels, img_);
-                std::cout << "  Multi-channel image detected - converted single-channel result to 3-channel" << std::endl;
-            } else {
-                throw std::runtime_error("Unsupported number of channels. Use 1 or 3 channels.");
-            }
+            hdr_isp::EigenImage result = yuv_to_rgb_eigen();
+            img_ = hdr_isp::eigen_to_opencv(result);
         } else {
             img_ = yuv_to_rgb_opencv();
         }
         
         auto end = std::chrono::high_resolution_clock::now();
-        std::chrono::duration<double> duration = end - start;
-        std::cout << "  Total execution time: " << duration.count() << "s" << std::endl;
+        auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+        
+        if (is_debug_) {
+            std::cout << "  Execution time: " << duration.count() / 1000.0 << "s" << std::endl;
+        }
     }
-    save();
+
     return img_;
 } 

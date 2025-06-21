@@ -105,9 +105,9 @@ PipelineConfig parse_arguments(int argc, char* argv[]) {
 }
 
 void create_output_directories(bool save_intermediate) {
-    std::filesystem::create_directories("out_frames");
+    std::filesystem::create_directories(fs::path(PROJECT_ROOT_DIR) / "out_frames");
     if (save_intermediate) {
-        std::filesystem::create_directories("out_frames/intermediate");
+        std::filesystem::create_directories(fs::path(PROJECT_ROOT_DIR) / "out_frames" / "intermediate");
     }
 }
 

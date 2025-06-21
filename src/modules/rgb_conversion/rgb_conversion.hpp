@@ -24,6 +24,7 @@ private:
     const YAML::Node& parm_csc_;
     bool enable_;
     bool is_save_;
+    bool is_debug_;
     int bit_depth_;
     int conv_std_;
     cv::Mat yuv_img_;

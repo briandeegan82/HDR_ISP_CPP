@@ -61,11 +61,6 @@ cv::Mat BayerNoiseReduction::apply_bnr() {
     cv::Mat output;
     combine_channels(filtered_r, filtered_g, filtered_b, output);
 
-    if (is_save_) {
-        std::string filename = "out_frames/intermediate/Out_bnr_" + std::to_string(width_) + "x" + std::to_string(height_) + ".png";
-        cv::imwrite(filename, output);
-    }
-
     return output;
 }
 
@@ -89,12 +84,6 @@ hdr_isp::EigenImage BayerNoiseReduction::apply_bnr_eigen() {
 
     hdr_isp::EigenImage output;
     combine_channels_eigen(filtered_r, filtered_g, filtered_b, output);
-
-    if (is_save_) {
-        std::string filename = "out_frames/intermediate/Out_bnr_" + std::to_string(width_) + "x" + std::to_string(height_) + ".png";
-        cv::Mat output_cv = hdr_isp::eigen_to_opencv(output);
-        cv::imwrite(filename, output_cv);
-    }
 
     return output;
 }

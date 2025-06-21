@@ -59,6 +59,8 @@ Demosaic::Demosaic(const cv::Mat& img, const std::string& bayer_pattern, int bit
     , bayer_pattern_(bayer_pattern)
     , bit_depth_(bit_depth)
     , is_save_(is_save)
+    , is_debug_(false) // Default to false, can be set via parameter if needed
+    , is_enable_(true) // Default to true
     , algorithm_(algorithm)
     , use_eigen_(true) // Use Eigen by default
 {
@@ -189,27 +191,24 @@ void Demosaic::save() {
 }
 
 cv::Mat Demosaic::execute() {
-    std::cout << "Demosaic algorithm: " << (algorithm_ == DemosaicAlgorithm::MALVAR ? "Malvar" : "OpenCV") << std::endl;
-    auto start = std::chrono::high_resolution_clock::now();
-    
-    cv::Mat cfa_out;
-    if (algorithm_ == DemosaicAlgorithm::MALVAR) {
+    if (is_enable_) {
+        auto start = std::chrono::high_resolution_clock::now();
+        
         if (use_eigen_) {
-            hdr_isp::EigenImage eigen_result = apply_cfa_eigen();
-            cfa_out = hdr_isp::eigen_to_opencv(eigen_result);
+            hdr_isp::EigenImage result = apply_cfa_eigen();
+            img_ = hdr_isp::eigen_to_opencv(result);
         } else {
-            cfa_out = apply_cfa();
+            img_ = apply_cfa();
         }
-    } else {
-        cfa_out = apply_opencv_demosaic();
+        
+        auto end = std::chrono::high_resolution_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+        
+        if (is_debug_) {
+            std::cout << "  Execution time: " << duration.count() / 1000.0 << "s" << std::endl;
+        }
     }
-    
-    auto end = std::chrono::high_resolution_clock::now();
-    std::chrono::duration<double> elapsed = end - start;
-    std::cout << "  Execution time: " << elapsed.count() << "s" << std::endl;
-    
-    img_ = cfa_out;
-    save();
+
     return img_;
 }
 
