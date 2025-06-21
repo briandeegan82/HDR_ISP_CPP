@@ -49,31 +49,34 @@ cv::Mat LensShadingCorrection::apply_lsc_opencv() {
     return result;
 }
 
-hdr_isp::EigenImage LensShadingCorrection::apply_lsc_eigen() {
-    // Convert to Eigen
-    hdr_isp::EigenImage eigen_img = hdr_isp::opencv_to_eigen(img_);
+hdr_isp::EigenImage32 LensShadingCorrection::apply_lsc_eigen() {
+    // Convert to EigenImage32 for integer processing
+    hdr_isp::EigenImage32 eigen_img = hdr_isp::EigenImage32::fromOpenCV(img_);
     
     // Create a simple radial shading correction using Eigen
     int rows = eigen_img.rows();
     int cols = eigen_img.cols();
-    hdr_isp::EigenImage shading_correction = hdr_isp::EigenImage::Ones(rows, cols);
+    hdr_isp::EigenImage32 shading_correction = hdr_isp::EigenImage32::Ones(rows, cols);
     
-    float center_x = cols / 2.0f;
-    float center_y = rows / 2.0f;
-    float max_radius = std::sqrt(center_x * center_x + center_y * center_y);
+    // Use integer arithmetic with scaling for precision
+    int center_x = cols / 2;
+    int center_y = rows / 2;
+    int max_radius_sq = center_x * center_x + center_y * center_y;
     
     for (int i = 0; i < rows; i++) {
         for (int j = 0; j < cols; j++) {
-            float dx = j - center_x;
-            float dy = i - center_y;
-            float radius = std::sqrt(dx * dx + dy * dy);
-            float correction_factor = 1.0f + 0.3f * (radius / max_radius) * (radius / max_radius);
+            int dx = j - center_x;
+            int dy = i - center_y;
+            int radius_sq = dx * dx + dy * dy;
+            // Scale by 1000 for precision, then scale back
+            int correction_factor = 1000 + (300 * radius_sq) / max_radius_sq;
             shading_correction(i, j) = correction_factor;
         }
     }
     
-    // Apply correction using Eigen element-wise multiplication
-    hdr_isp::EigenImage corrected = eigen_img.cwiseProduct(shading_correction);
+    // Apply correction using integer arithmetic with scaling
+    hdr_isp::EigenImage32 corrected = eigen_img.cwiseProduct(shading_correction);
+    corrected = corrected / 1000; // Scale back down
     
     return corrected;
 }
@@ -83,8 +86,8 @@ cv::Mat LensShadingCorrection::execute() {
         auto start = std::chrono::high_resolution_clock::now();
         
         if (use_eigen_) {
-            hdr_isp::EigenImage eigen_result = apply_lsc_eigen();
-            img_ = hdr_isp::eigen_to_opencv(eigen_result);
+            hdr_isp::EigenImage32 eigen_result = apply_lsc_eigen();
+            img_ = eigen_result.toOpenCV(img_.type());
         } else {
             img_ = apply_lsc_opencv();
         }

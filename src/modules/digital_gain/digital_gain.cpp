@@ -139,7 +139,7 @@ cv::Mat DigitalGain::apply_digital_gain_opencv() {
     }
 }
 
-hdr_isp::EigenImage DigitalGain::apply_digital_gain_eigen() {
+hdr_isp::EigenImage32 DigitalGain::apply_digital_gain_eigen() {
     std::cout << "DigitalGain::apply_digital_gain_eigen() - starting..." << std::endl;
     
     try {
@@ -148,10 +148,10 @@ hdr_isp::EigenImage DigitalGain::apply_digital_gain_eigen() {
         int bpp = sensor_info_["output_bit_depth"].as<int>();
         std::cout << "  output_bit_depth = " << bpp << std::endl;
 
-        // Convert to Eigen
-        std::cout << "  Converting image to Eigen..." << std::endl;
-        hdr_isp::EigenImage eigen_img = hdr_isp::opencv_to_eigen(img_);
-        std::cout << "  Image converted to Eigen successfully" << std::endl;
+        // Convert to EigenImage32 for integer processing
+        std::cout << "  Converting image to EigenImage32..." << std::endl;
+        hdr_isp::EigenImage32 eigen_img = hdr_isp::EigenImage32::fromOpenCV(img_);
+        std::cout << "  Image converted to EigenImage32 successfully" << std::endl;
 
         // Apply gains based on AE feedback
         if (is_auto_) {
@@ -168,9 +168,11 @@ hdr_isp::EigenImage DigitalGain::apply_digital_gain_eigen() {
             }
         }
 
-        // Apply the selected gain
-        std::cout << "  Applying gain " << gains_array_[current_gain_] << std::endl;
-        eigen_img = eigen_img * gains_array_[current_gain_];
+        // Apply the selected gain (convert to integer for better performance)
+        int gain_int = static_cast<int>(gains_array_[current_gain_] * 1000); // Scale by 1000 for precision
+        std::cout << "  Applying gain " << gains_array_[current_gain_] << " (scaled: " << gain_int << ")" << std::endl;
+        eigen_img = eigen_img * gain_int;
+        eigen_img = eigen_img / 1000; // Scale back down
 
         if (is_debug_) {
             std::cout << "   - DG  - Applied Gain = " << gains_array_[current_gain_] << std::endl;
@@ -179,7 +181,7 @@ hdr_isp::EigenImage DigitalGain::apply_digital_gain_eigen() {
         // Apply clipping
         std::cout << "  Applying clipping..." << std::endl;
         int max_val = (1 << bpp) - 1;
-        eigen_img = eigen_img.cwiseMax(0.0f).cwiseMin(static_cast<float>(max_val));
+        eigen_img = eigen_img.clip(0, max_val);
         std::cout << "  Applied clipping successfully" << std::endl;
 
         std::cout << "DigitalGain::apply_digital_gain_eigen() - completed successfully" << std::endl;
@@ -210,8 +212,8 @@ std::pair<cv::Mat, float> DigitalGain::execute() {
         auto start = std::chrono::high_resolution_clock::now();
         
         if (use_eigen_) {
-            hdr_isp::EigenImage result = apply_digital_gain_eigen();
-            img_ = hdr_isp::eigen_to_opencv(result);
+            hdr_isp::EigenImage32 result = apply_digital_gain_eigen();
+            img_ = result.toOpenCV(img_.type());
         } else {
             img_ = apply_digital_gain_opencv();
         }

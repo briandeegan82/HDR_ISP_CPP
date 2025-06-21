@@ -13,15 +13,15 @@ public:
 
 private:
     cv::Mat apply_bnr();
-    hdr_isp::EigenImage apply_bnr_eigen();
+    hdr_isp::EigenImage32 apply_bnr_eigen();
     void extract_channels(const cv::Mat& img, cv::Mat& r_channel, cv::Mat& b_channel);
-    void extract_channels_eigen(const hdr_isp::EigenImage& img, hdr_isp::EigenImage& r_channel, hdr_isp::EigenImage& b_channel);
+    void extract_channels_eigen(const hdr_isp::EigenImage32& img, hdr_isp::EigenImage32& r_channel, hdr_isp::EigenImage32& b_channel);
     void combine_channels(const cv::Mat& r_channel, const cv::Mat& g_channel, const cv::Mat& b_channel, cv::Mat& output);
-    void combine_channels_eigen(const hdr_isp::EigenImage& r_channel, const hdr_isp::EigenImage& g_channel, const hdr_isp::EigenImage& b_channel, hdr_isp::EigenImage& output);
+    void combine_channels_eigen(const hdr_isp::EigenImage32& r_channel, const hdr_isp::EigenImage32& g_channel, const hdr_isp::EigenImage32& b_channel, hdr_isp::EigenImage32& output);
     cv::Mat interpolate_green_channel(const cv::Mat& img);
-    hdr_isp::EigenImage interpolate_green_channel_eigen(const hdr_isp::EigenImage& img);
+    hdr_isp::EigenImage32 interpolate_green_channel_eigen(const hdr_isp::EigenImage32& img);
     cv::Mat bilateral_filter(const cv::Mat& src, int d, double sigmaColor, double sigmaSpace);
-    hdr_isp::EigenImage bilateral_filter_eigen(const hdr_isp::EigenImage& src, int d, double sigmaColor, double sigmaSpace);
+    hdr_isp::EigenImage32 bilateral_filter_eigen(const hdr_isp::EigenImage32& src, int d, double sigmaColor, double sigmaSpace);
 
     cv::Mat raw_;
     YAML::Node sensor_info_;

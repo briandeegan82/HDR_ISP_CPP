@@ -156,6 +156,106 @@ private:
     EigenImage r_, g_, b_;
 };
 
+/**
+ * @brief Single-channel Eigen-based image class for 32-bit integer processing
+ * 
+ * This class provides a wrapper around Eigen::MatrixXi for single-channel images,
+ * optimized for early pipeline stages that need integer precision.
+ */
+class EigenImage32 {
+public:
+    EigenImage32() = default;
+    EigenImage32(int rows, int cols) : data_(rows, cols) {}
+    EigenImage32(const Eigen::MatrixXi& matrix) : data_(matrix) {}
+    
+    // Conversion from OpenCV Mat
+    static EigenImage32 fromOpenCV(const cv::Mat& mat);
+    
+    // Conversion to OpenCV Mat
+    cv::Mat toOpenCV(int opencv_type = CV_32SC1) const;
+    
+    // Access to underlying data
+    Eigen::MatrixXi& data() { return data_; }
+    const Eigen::MatrixXi& data() const { return data_; }
+    
+    // Basic operations
+    int rows() const { return data_.rows(); }
+    int cols() const { return data_.cols(); }
+    int size() const { return data_.size(); }
+    
+    // Static factory methods
+    static EigenImage32 Zero(int rows, int cols) { return EigenImage32(Eigen::MatrixXi::Zero(rows, cols)); }
+    static EigenImage32 Ones(int rows, int cols) { return EigenImage32(Eigen::MatrixXi::Ones(rows, cols)); }
+    static EigenImage32 Constant(int rows, int cols, int value) { return EigenImage32(Eigen::MatrixXi::Constant(rows, cols, value)); }
+    
+    // Element-wise operations
+    EigenImage32 operator*(int scalar) const { return EigenImage32(data_ * scalar); }
+    EigenImage32 operator+(const EigenImage32& other) const { return EigenImage32(data_ + other.data_); }
+    EigenImage32 operator-(const EigenImage32& other) const { return EigenImage32(data_ - other.data_); }
+    EigenImage32 operator+(int scalar) const { return EigenImage32(data_.array() + scalar); }
+    EigenImage32 operator-(int scalar) const { return EigenImage32(data_.array() - scalar); }
+    EigenImage32 operator/(int scalar) const { return EigenImage32(data_ / scalar); }
+    
+    // Element-wise product
+    EigenImage32 cwiseProduct(const EigenImage32& other) const { return EigenImage32(data_.cwiseProduct(other.data_)); }
+    
+    // Clipping operations
+    EigenImage32 clip(int min_val, int max_val) const;
+    EigenImage32 cwiseMax(int val) const { return EigenImage32(data_.cwiseMax(val)); }
+    EigenImage32 cwiseMin(int val) const { return EigenImage32(data_.cwiseMin(val)); }
+    
+    // Block operations
+    EigenImage32 block(int startRow, int startCol, int numRows, int numCols) const {
+        return EigenImage32(data_.block(startRow, startCol, numRows, numCols));
+    }
+    
+    // Statistics
+    int min() const { return data_.minCoeff(); }
+    int max() const { return data_.maxCoeff(); }
+    float mean() const { return data_.cast<float>().mean(); }
+    
+    // Assignment operators
+    EigenImage32& operator=(const EigenImage32& other) {
+        data_ = other.data_;
+        return *this;
+    }
+    
+    EigenImage32& operator=(int scalar) {
+        data_.setConstant(scalar);
+        return *this;
+    }
+    
+    EigenImage32& operator+=(const EigenImage32& other) {
+        data_ += other.data_;
+        return *this;
+    }
+    
+    EigenImage32& operator-=(const EigenImage32& other) {
+        data_ -= other.data_;
+        return *this;
+    }
+    
+    EigenImage32& operator*=(int scalar) {
+        data_ *= scalar;
+        return *this;
+    }
+    
+    EigenImage32& operator/=(int scalar) {
+        data_ /= scalar;
+        return *this;
+    }
+    
+    // Element access
+    int& operator()(int i, int j) { return data_(i, j); }
+    const int& operator()(int i, int j) const { return data_(i, j); }
+    
+    // Bayer pattern operations
+    EigenImage32 extractBayerChannel(const std::string& bayer_pattern, char channel) const;
+    
+private:
+    Eigen::MatrixXi data_;
+};
+
 // Utility functions
 namespace eigen_utils {
     

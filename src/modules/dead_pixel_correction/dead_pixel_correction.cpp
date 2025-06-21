@@ -64,16 +64,15 @@ cv::Mat DeadPixelCorrection::correct_dead_pixels_opencv() {
     return corrected_img;
 }
 
-hdr_isp::EigenImage DeadPixelCorrection::correct_dead_pixels_eigen(const hdr_isp::EigenImage& img) {
-    hdr_isp::EigenImage corrected_img = img;
-    float max_value = static_cast<float>((1 << bit_depth_) - 1);
-    float threshold = static_cast<float>(parm_dpc_["threshold"].as<int>());
+hdr_isp::EigenImage32 DeadPixelCorrection::correct_dead_pixels_eigen(const hdr_isp::EigenImage32& img) {
+    hdr_isp::EigenImage32 corrected_img = img;
+    int max_value = (1 << bit_depth_) - 1;
+    int threshold = parm_dpc_["threshold"].as<int>();
 
     // Create a mask for dead pixels (pixels with value 0 or max_value)
-    hdr_isp::EigenImage dead_pixel_mask(img.rows(), img.cols());
-    // Use explicit casting to avoid type mixing issues
-    dead_pixel_mask.data() = ((img.data().array() == 0.0f).cast<float>() + 
-                              (img.data().array() == max_value).cast<float>()).matrix();
+    hdr_isp::EigenImage32 dead_pixel_mask(img.rows(), img.cols());
+    dead_pixel_mask.data() = ((img.data().array() == 0).cast<int>() + 
+                              (img.data().array() == max_value).cast<int>()).matrix();
 
     // Count dead pixels for debug output
     int num_dead_pixels = static_cast<int>(dead_pixel_mask.data().sum());
@@ -81,19 +80,19 @@ hdr_isp::EigenImage DeadPixelCorrection::correct_dead_pixels_eigen(const hdr_isp
     // For each dead pixel, replace with the median of its neighbors
     for (int i = 1; i < img.rows() - 1; i++) {
         for (int j = 1; j < img.cols() - 1; j++) {
-            if (dead_pixel_mask.data()(i, j) > 0.5f) { // Check if pixel is dead
+            if (dead_pixel_mask.data()(i, j) > 0) { // Check if pixel is dead
                 // Extract 3x3 neighborhood
-                hdr_isp::EigenImage neighborhood(3, 3);
+                hdr_isp::EigenImage32 neighborhood(3, 3);
                 neighborhood.data() = img.data().block(i-1, j-1, 3, 3);
                 
                 // Extract corresponding dead pixel mask for neighborhood
-                hdr_isp::EigenImage neighborhood_dead_mask(3, 3);
+                hdr_isp::EigenImage32 neighborhood_dead_mask(3, 3);
                 neighborhood_dead_mask.data() = dead_pixel_mask.data().block(i-1, j-1, 3, 3);
                 
                 // Calculate median of non-dead pixels in neighborhood
-                float median_value = calculate_median_eigen(neighborhood, neighborhood_dead_mask);
+                int median_value = calculate_median_eigen(neighborhood, neighborhood_dead_mask);
                 
-                if (median_value >= 0.0f) { // Valid median found
+                if (median_value >= 0) { // Valid median found
                     corrected_img.data()(i, j) = median_value;
                 }
             }
@@ -107,20 +106,20 @@ hdr_isp::EigenImage DeadPixelCorrection::correct_dead_pixels_eigen(const hdr_isp
     return corrected_img;
 }
 
-float DeadPixelCorrection::calculate_median_eigen(const hdr_isp::EigenImage& neighborhood, const hdr_isp::EigenImage& dead_mask) {
-    std::vector<float> values;
+int DeadPixelCorrection::calculate_median_eigen(const hdr_isp::EigenImage32& neighborhood, const hdr_isp::EigenImage32& dead_mask) {
+    std::vector<int> values;
     
     // Collect non-dead pixel values from neighborhood
     for (int i = 0; i < 3; i++) {
         for (int j = 0; j < 3; j++) {
-            if (dead_mask.data()(i, j) < 0.5f) { // Not a dead pixel
+            if (dead_mask.data()(i, j) == 0) { // Not a dead pixel
                 values.push_back(neighborhood.data()(i, j));
             }
         }
     }
     
     if (values.empty()) {
-        return -1.0f; // No valid pixels found
+        return -1; // No valid pixels found
     }
     
     // Sort values and get median
@@ -151,10 +150,10 @@ cv::Mat DeadPixelCorrection::execute() {
             }
             
             // Convert to Eigen format
-            hdr_isp::EigenImage eigen_img = hdr_isp::EigenImage::fromOpenCV(img_);
+            hdr_isp::EigenImage32 eigen_img = hdr_isp::EigenImage32::fromOpenCV(img_);
             
             // Apply dead pixel correction using Eigen
-            hdr_isp::EigenImage corrected_eigen = correct_dead_pixels_eigen(eigen_img);
+            hdr_isp::EigenImage32 corrected_eigen = correct_dead_pixels_eigen(eigen_img);
             
             // Convert back to OpenCV format
             img_ = corrected_eigen.toOpenCV(img_.type());

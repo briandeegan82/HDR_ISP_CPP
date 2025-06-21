@@ -28,8 +28,8 @@ cv::Mat BayerNoiseReduction::execute() {
     
     cv::Mat result;
     if (use_eigen_) {
-        hdr_isp::EigenImage eigen_result = apply_bnr_eigen();
-        result = hdr_isp::eigen_to_opencv(eigen_result);
+        hdr_isp::EigenImage32 eigen_result = apply_bnr_eigen();
+        result = eigen_result.toOpenCV(raw_.type());
     } else {
         result = apply_bnr();
     }
@@ -64,11 +64,11 @@ cv::Mat BayerNoiseReduction::apply_bnr() {
     return output;
 }
 
-hdr_isp::EigenImage BayerNoiseReduction::apply_bnr_eigen() {
-    hdr_isp::EigenImage eigen_raw = hdr_isp::opencv_to_eigen(raw_);
-    hdr_isp::EigenImage r_channel, b_channel;
+hdr_isp::EigenImage32 BayerNoiseReduction::apply_bnr_eigen() {
+    hdr_isp::EigenImage32 eigen_raw = hdr_isp::EigenImage32::fromOpenCV(raw_);
+    hdr_isp::EigenImage32 r_channel, b_channel;
     extract_channels_eigen(eigen_raw, r_channel, b_channel);
-    hdr_isp::EigenImage g_channel = interpolate_green_channel_eigen(eigen_raw);
+    hdr_isp::EigenImage32 g_channel = interpolate_green_channel_eigen(eigen_raw);
 
     // Apply bilateral filter to each channel
     int d = parm_bnr_["filter_window"].as<int>();
@@ -78,11 +78,11 @@ hdr_isp::EigenImage BayerNoiseReduction::apply_bnr_eigen() {
     double sigmaSpace_r = parm_bnr_["r_std_dev_r"].as<double>();
     double sigmaSpace_g = parm_bnr_["g_std_dev_r"].as<double>();
     double sigmaSpace_b = parm_bnr_["b_std_dev_r"].as<double>();
-    hdr_isp::EigenImage filtered_r = bilateral_filter_eigen(r_channel, d, sigmaColor_r, sigmaSpace_r);
-    hdr_isp::EigenImage filtered_g = bilateral_filter_eigen(g_channel, d, sigmaColor_g, sigmaSpace_g);
-    hdr_isp::EigenImage filtered_b = bilateral_filter_eigen(b_channel, d, sigmaColor_b, sigmaSpace_b);
+    hdr_isp::EigenImage32 filtered_r = bilateral_filter_eigen(r_channel, d, sigmaColor_r, sigmaSpace_r);
+    hdr_isp::EigenImage32 filtered_g = bilateral_filter_eigen(g_channel, d, sigmaColor_g, sigmaSpace_g);
+    hdr_isp::EigenImage32 filtered_b = bilateral_filter_eigen(b_channel, d, sigmaColor_b, sigmaSpace_b);
 
-    hdr_isp::EigenImage output;
+    hdr_isp::EigenImage32 output;
     combine_channels_eigen(filtered_r, filtered_g, filtered_b, output);
 
     return output;
@@ -105,9 +105,9 @@ void BayerNoiseReduction::extract_channels(const cv::Mat& img, cv::Mat& r_channe
     }
 }
 
-void BayerNoiseReduction::extract_channels_eigen(const hdr_isp::EigenImage& img, hdr_isp::EigenImage& r_channel, hdr_isp::EigenImage& b_channel) {
-    r_channel = hdr_isp::EigenImage::Zero(height_, width_);
-    b_channel = hdr_isp::EigenImage::Zero(height_, width_);
+void BayerNoiseReduction::extract_channels_eigen(const hdr_isp::EigenImage32& img, hdr_isp::EigenImage32& r_channel, hdr_isp::EigenImage32& b_channel) {
+    r_channel = hdr_isp::EigenImage32::Zero(height_, width_);
+    b_channel = hdr_isp::EigenImage32::Zero(height_, width_);
 
     for (int y = 0; y < height_; y++) {
         for (int x = 0; x < width_; x++) {
@@ -127,7 +127,7 @@ void BayerNoiseReduction::combine_channels(const cv::Mat& r_channel, const cv::M
     cv::merge(channels, output);
 }
 
-void BayerNoiseReduction::combine_channels_eigen(const hdr_isp::EigenImage& r_channel, const hdr_isp::EigenImage& g_channel, const hdr_isp::EigenImage& b_channel, hdr_isp::EigenImage& output) {
+void BayerNoiseReduction::combine_channels_eigen(const hdr_isp::EigenImage32& r_channel, const hdr_isp::EigenImage32& g_channel, const hdr_isp::EigenImage32& b_channel, hdr_isp::EigenImage32& output) {
     // For simplicity, return the green channel as output
     // In a full implementation, you'd create a proper 3-channel EigenImage
     output = g_channel;
@@ -167,8 +167,8 @@ cv::Mat BayerNoiseReduction::interpolate_green_channel(const cv::Mat& img) {
     return g_channel;
 }
 
-hdr_isp::EigenImage BayerNoiseReduction::interpolate_green_channel_eigen(const hdr_isp::EigenImage& img) {
-    hdr_isp::EigenImage g_channel = hdr_isp::EigenImage::Zero(height_, width_);
+hdr_isp::EigenImage32 BayerNoiseReduction::interpolate_green_channel_eigen(const hdr_isp::EigenImage32& img) {
+    hdr_isp::EigenImage32 g_channel = hdr_isp::EigenImage32::Zero(height_, width_);
     
     for (int y = 0; y < height_; y++) {
         for (int x = 0; x < width_; x++) {
@@ -181,7 +181,7 @@ hdr_isp::EigenImage BayerNoiseReduction::interpolate_green_channel_eigen(const h
                     g_channel.data()(y, x) = img.data()(y, x);
                 } else {
                     // Interpolate green value
-                    float sum = 0.0f;
+                    int sum = 0;
                     int count = 0;
                     
                     // Check neighbors
@@ -207,32 +207,31 @@ cv::Mat BayerNoiseReduction::bilateral_filter(const cv::Mat& src, int d, double 
     return filtered;
 }
 
-hdr_isp::EigenImage BayerNoiseReduction::bilateral_filter_eigen(const hdr_isp::EigenImage& src, int d, double sigmaColor, double sigmaSpace) {
+hdr_isp::EigenImage32 BayerNoiseReduction::bilateral_filter_eigen(const hdr_isp::EigenImage32& src, int d, double sigmaColor, double sigmaSpace) {
     // Simplified bilateral filter using Eigen
     // In a full implementation, you'd implement proper bilateral filtering
     int rows = src.rows();
     int cols = src.cols();
     
     // Simple Gaussian blur as approximation
-    hdr_isp::EigenImage filtered = hdr_isp::EigenImage::Zero(rows, cols);
+    hdr_isp::EigenImage32 filtered = hdr_isp::EigenImage32::Zero(rows, cols);
     
-    // Simple 3x3 Gaussian kernel
-    Eigen::Matrix3f kernel;
+    // Simple 3x3 Gaussian kernel (scaled by 16 for integer arithmetic)
+    Eigen::Matrix3i kernel;
     kernel << 1, 2, 1,
               2, 4, 2,
               1, 2, 1;
-    kernel = kernel / 16.0f;
     
     // Apply convolution
     for (int i = 1; i < rows - 1; i++) {
         for (int j = 1; j < cols - 1; j++) {
-            float sum = 0.0f;
+            int sum = 0;
             for (int ki = -1; ki <= 1; ki++) {
                 for (int kj = -1; kj <= 1; kj++) {
                     sum += src.data()(i + ki, j + kj) * kernel(ki + 1, kj + 1);
                 }
             }
-            filtered.data()(i, j) = sum;
+            filtered.data()(i, j) = sum / 16; // Scale back down
         }
     }
     

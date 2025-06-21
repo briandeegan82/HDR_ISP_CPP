@@ -78,7 +78,7 @@ cv::Mat OECF::apply_oecf_opencv() {
     return raw_oecf;
 }
 
-hdr_isp::EigenImage OECF::apply_oecf_eigen() {
+hdr_isp::EigenImage32 OECF::apply_oecf_eigen() {
     std::string bayer = sensor_info_["bayer_pattern"].as<std::string>();
     int bpp = sensor_info_["bit_depth"].as<int>();
     int max_value = (1 << bpp) - 1;
@@ -89,85 +89,85 @@ hdr_isp::EigenImage OECF::apply_oecf_eigen() {
     std::vector<uint16_t> gb_lut = parm_oecf_["r_lut"].as<std::vector<uint16_t>>();
     std::vector<uint16_t> bl_lut = parm_oecf_["r_lut"].as<std::vector<uint16_t>>();
 
-    hdr_isp::EigenImage eigen_img = hdr_isp::EigenImage::fromOpenCV(img_);
+    hdr_isp::EigenImage32 eigen_img = hdr_isp::EigenImage32::fromOpenCV(img_);
     int rows = eigen_img.rows();
     int cols = eigen_img.cols();
 
     if (bayer == "rggb") {
         for (int i = 0; i < rows; i += 2) {
             for (int j = 0; j < cols; j += 2) {
-                int pixel_value = static_cast<int>(eigen_img.data()(i, j));
+                int pixel_value = eigen_img.data()(i, j);
                 if (pixel_value >= 0 && pixel_value < static_cast<int>(r_lut.size()))
-                    eigen_img.data()(i, j) = static_cast<float>(r_lut[pixel_value]);
-                pixel_value = static_cast<int>(eigen_img.data()(i, j + 1));
+                    eigen_img.data()(i, j) = static_cast<int>(r_lut[pixel_value]);
+                pixel_value = eigen_img.data()(i, j + 1);
                 if (pixel_value >= 0 && pixel_value < static_cast<int>(gr_lut.size()))
-                    eigen_img.data()(i, j + 1) = static_cast<float>(gr_lut[pixel_value]);
-                pixel_value = static_cast<int>(eigen_img.data()(i + 1, j));
+                    eigen_img.data()(i, j + 1) = static_cast<int>(gr_lut[pixel_value]);
+                pixel_value = eigen_img.data()(i + 1, j);
                 if (pixel_value >= 0 && pixel_value < static_cast<int>(gb_lut.size()))
-                    eigen_img.data()(i + 1, j) = static_cast<float>(gb_lut[pixel_value]);
-                pixel_value = static_cast<int>(eigen_img.data()(i + 1, j + 1));
+                    eigen_img.data()(i + 1, j) = static_cast<int>(gb_lut[pixel_value]);
+                pixel_value = eigen_img.data()(i + 1, j + 1);
                 if (pixel_value >= 0 && pixel_value < static_cast<int>(bl_lut.size()))
-                    eigen_img.data()(i + 1, j + 1) = static_cast<float>(bl_lut[pixel_value]);
+                    eigen_img.data()(i + 1, j + 1) = static_cast<int>(bl_lut[pixel_value]);
             }
         }
     }
     else if (bayer == "bggr") {
         for (int i = 0; i < rows; i += 2) {
             for (int j = 0; j < cols; j += 2) {
-                int pixel_value = static_cast<int>(eigen_img.data()(i, j));
+                int pixel_value = eigen_img.data()(i, j);
                 if (pixel_value >= 0 && pixel_value < static_cast<int>(bl_lut.size()))
-                    eigen_img.data()(i, j) = static_cast<float>(bl_lut[pixel_value]);
-                pixel_value = static_cast<int>(eigen_img.data()(i, j + 1));
+                    eigen_img.data()(i, j) = static_cast<int>(bl_lut[pixel_value]);
+                pixel_value = eigen_img.data()(i, j + 1);
                 if (pixel_value >= 0 && pixel_value < static_cast<int>(gb_lut.size()))
-                    eigen_img.data()(i, j + 1) = static_cast<float>(gb_lut[pixel_value]);
-                pixel_value = static_cast<int>(eigen_img.data()(i + 1, j));
+                    eigen_img.data()(i, j + 1) = static_cast<int>(gb_lut[pixel_value]);
+                pixel_value = eigen_img.data()(i + 1, j);
                 if (pixel_value >= 0 && pixel_value < static_cast<int>(gr_lut.size()))
-                    eigen_img.data()(i + 1, j) = static_cast<float>(gr_lut[pixel_value]);
-                pixel_value = static_cast<int>(eigen_img.data()(i + 1, j + 1));
+                    eigen_img.data()(i + 1, j) = static_cast<int>(gr_lut[pixel_value]);
+                pixel_value = eigen_img.data()(i + 1, j + 1);
                 if (pixel_value >= 0 && pixel_value < static_cast<int>(r_lut.size()))
-                    eigen_img.data()(i + 1, j + 1) = static_cast<float>(r_lut[pixel_value]);
+                    eigen_img.data()(i + 1, j + 1) = static_cast<int>(r_lut[pixel_value]);
             }
         }
     }
     else if (bayer == "grbg") {
         for (int i = 0; i < rows; i += 2) {
             for (int j = 0; j < cols; j += 2) {
-                int pixel_value = static_cast<int>(eigen_img.data()(i, j));
+                int pixel_value = eigen_img.data()(i, j);
                 if (pixel_value >= 0 && pixel_value < static_cast<int>(gr_lut.size()))
-                    eigen_img.data()(i, j) = static_cast<float>(gr_lut[pixel_value]);
-                pixel_value = static_cast<int>(eigen_img.data()(i, j + 1));
+                    eigen_img.data()(i, j) = static_cast<int>(gr_lut[pixel_value]);
+                pixel_value = eigen_img.data()(i, j + 1);
                 if (pixel_value >= 0 && pixel_value < static_cast<int>(r_lut.size()))
-                    eigen_img.data()(i, j + 1) = static_cast<float>(r_lut[pixel_value]);
-                pixel_value = static_cast<int>(eigen_img.data()(i + 1, j));
+                    eigen_img.data()(i, j + 1) = static_cast<int>(r_lut[pixel_value]);
+                pixel_value = eigen_img.data()(i + 1, j);
                 if (pixel_value >= 0 && pixel_value < static_cast<int>(bl_lut.size()))
-                    eigen_img.data()(i + 1, j) = static_cast<float>(bl_lut[pixel_value]);
-                pixel_value = static_cast<int>(eigen_img.data()(i + 1, j + 1));
+                    eigen_img.data()(i + 1, j) = static_cast<int>(bl_lut[pixel_value]);
+                pixel_value = eigen_img.data()(i + 1, j + 1);
                 if (pixel_value >= 0 && pixel_value < static_cast<int>(gb_lut.size()))
-                    eigen_img.data()(i + 1, j + 1) = static_cast<float>(gb_lut[pixel_value]);
+                    eigen_img.data()(i + 1, j + 1) = static_cast<int>(gb_lut[pixel_value]);
             }
         }
     }
     else if (bayer == "gbrg") {
         for (int i = 0; i < rows; i += 2) {
             for (int j = 0; j < cols; j += 2) {
-                int pixel_value = static_cast<int>(eigen_img.data()(i, j));
+                int pixel_value = eigen_img.data()(i, j);
                 if (pixel_value >= 0 && pixel_value < static_cast<int>(gb_lut.size()))
-                    eigen_img.data()(i, j) = static_cast<float>(gb_lut[pixel_value]);
-                pixel_value = static_cast<int>(eigen_img.data()(i, j + 1));
+                    eigen_img.data()(i, j) = static_cast<int>(gb_lut[pixel_value]);
+                pixel_value = eigen_img.data()(i, j + 1);
                 if (pixel_value >= 0 && pixel_value < static_cast<int>(bl_lut.size()))
-                    eigen_img.data()(i, j + 1) = static_cast<float>(bl_lut[pixel_value]);
-                pixel_value = static_cast<int>(eigen_img.data()(i + 1, j));
+                    eigen_img.data()(i, j + 1) = static_cast<int>(bl_lut[pixel_value]);
+                pixel_value = eigen_img.data()(i + 1, j);
                 if (pixel_value >= 0 && pixel_value < static_cast<int>(r_lut.size()))
-                    eigen_img.data()(i + 1, j) = static_cast<float>(r_lut[pixel_value]);
-                pixel_value = static_cast<int>(eigen_img.data()(i + 1, j + 1));
+                    eigen_img.data()(i + 1, j) = static_cast<int>(r_lut[pixel_value]);
+                pixel_value = eigen_img.data()(i + 1, j + 1);
                 if (pixel_value >= 0 && pixel_value < static_cast<int>(gr_lut.size()))
-                    eigen_img.data()(i + 1, j + 1) = static_cast<float>(gr_lut[pixel_value]);
+                    eigen_img.data()(i + 1, j + 1) = static_cast<int>(gr_lut[pixel_value]);
             }
         }
     }
 
     // Clip values to valid range using Eigen
-    eigen_img.data() = eigen_img.data().cwiseMin(static_cast<float>(max_value));
+    eigen_img = eigen_img.clip(0, max_value);
     return eigen_img;
 }
 
@@ -186,8 +186,8 @@ cv::Mat OECF::execute() {
         auto start = std::chrono::high_resolution_clock::now();
         
         if (use_eigen_) {
-            hdr_isp::EigenImage result = apply_oecf_eigen();
-            img_ = hdr_isp::eigen_to_opencv(result);
+            hdr_isp::EigenImage32 result = apply_oecf_eigen();
+            img_ = result.toOpenCV(img_.type());
         } else {
             img_ = apply_oecf_opencv();
         }

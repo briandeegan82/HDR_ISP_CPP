@@ -68,12 +68,12 @@ void PiecewiseCurve::save() {
 }
 
 cv::Mat PiecewiseCurve::execute() {
-    if (is_enable_) {
+    if (enable_) {
         auto start = std::chrono::high_resolution_clock::now();
         
         if (use_eigen_) {
-            hdr_isp::EigenImage result = execute_eigen();
-            img_ = hdr_isp::eigen_to_opencv(result);
+            hdr_isp::EigenImage32 result = execute_eigen();
+            img_ = result.toOpenCV(img_.type());
         } else {
             img_ = execute_opencv();
         }
@@ -120,29 +120,32 @@ cv::Mat PiecewiseCurve::execute_opencv() {
     return img_;
 }
 
-hdr_isp::EigenImage PiecewiseCurve::execute_eigen() {
+hdr_isp::EigenImage32 PiecewiseCurve::execute_eigen() {
     std::vector<double> lut = generate_decompanding_lut(
         companded_pin_,
         companded_pout_,
         companded_pin_.back()
     );
-    hdr_isp::EigenImage eigen_img = hdr_isp::EigenImage::fromOpenCV(img_);
+    hdr_isp::EigenImage32 eigen_img = hdr_isp::EigenImage32::fromOpenCV(img_);
     int rows = eigen_img.rows();
     int cols = eigen_img.cols();
+    
     // Apply LUT to each pixel using Eigen
     for (int i = 0; i < rows; ++i) {
         for (int j = 0; j < cols; ++j) {
-            int pixel_value = static_cast<int>(eigen_img.data()(i, j));
-            if (pixel_value >= 0 && pixel_value < static_cast<int>(lut.size()))
-                eigen_img.data()(i, j) = static_cast<float>(lut[pixel_value]);
-            else
-                eigen_img.data()(i, j) = 0.0f;
+            int pixel_value = eigen_img.data()(i, j);
+            if (pixel_value >= 0 && pixel_value < static_cast<int>(lut.size())) {
+                eigen_img.data()(i, j) = static_cast<int>(lut[pixel_value]);
+            } else {
+                eigen_img.data()(i, j) = 0;
+            }
         }
     }
-    double pedestal = parm_cmpd_["pedestal"].as<double>();
-    eigen_img.data().array() -= static_cast<float>(pedestal);
-    eigen_img.data() = eigen_img.data().cwiseMax(0.0f);
-    eigen_img.data() = eigen_img.data().unaryExpr([](float v) { return std::max(0.0f, v); });
-    eigen_img.data() = eigen_img.data().array().round();
+    
+    // Subtract pedestal and clip negative values
+    int pedestal = static_cast<int>(parm_cmpd_["pedestal"].as<double>());
+    eigen_img = eigen_img - pedestal;
+    eigen_img = eigen_img.clip(0, (1 << bit_depth_) - 1);
+    
     return eigen_img;
 } 

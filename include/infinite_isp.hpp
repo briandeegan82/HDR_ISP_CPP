@@ -95,6 +95,7 @@ private:
     // Private methods
     void load_config(const std::string& config_path);
     void load_raw();
+    void handle_non_byte_aligned_bit_depth();
     cv::Mat run_pipeline(bool visualize_output = true, bool save_intermediate = false);
     void load_3a_statistics(bool awb_on = true, bool ae_on = true);
     cv::Mat execute_with_3a_statistics(bool save_intermediate = false);

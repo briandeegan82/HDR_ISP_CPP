@@ -15,7 +15,7 @@ public:
 
 private:
     cv::Mat apply_digital_gain_opencv();
-    hdr_isp::EigenImage apply_digital_gain_eigen();
+    hdr_isp::EigenImage32 apply_digital_gain_eigen();
     void save();
 
     cv::Mat img_;

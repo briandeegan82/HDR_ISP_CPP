@@ -81,49 +81,92 @@ void InfiniteISP::load_config(const std::string& config_path) {
 }
 
 void InfiniteISP::load_raw() {
+    std::cout << "load_raw() started..." << std::endl;
+    
     fs::path path_object = fs::path(data_path_) / raw_file_;
     std::string raw_path = path_object.string();
+    std::cout << "Raw file path: " << raw_path << std::endl;
+    
     in_file_ = path_object.stem().string();
     out_file_ = "Out_" + in_file_;
 
     config_["platform"]["in_file"] = in_file_;
     config_["platform"]["out_file"] = out_file_;
 
+    std::cout << "Checking if file exists..." << std::endl;
+    if (!fs::exists(path_object)) {
+        std::cerr << "Error: Input file not found: " << raw_path << std::endl;
+        throw std::runtime_error("Input file not found: " + raw_path);
+    }
+    std::cout << "File exists!" << std::endl;
+
     // Calculate file size to determine if memory mapping should be used
     size_t file_size = fs::file_size(path_object);
+    std::cout << "File size: " << file_size << " bytes" << std::endl;
     bool use_mmap = file_size > 100 * 1024 * 1024;  // Use mmap for files > 100MB
 
     if (memory_mapped_data_ != nullptr) {
+        std::cout << "Using memory mapped data..." << std::endl;
         raw_ = *memory_mapped_data_;
     }
     else if (path_object.extension() == ".raw") {
+        std::cout << "Processing .raw file..." << std::endl;
         if (use_mmap) {
             // TODO: Implement memory mapping for raw files
             throw std::runtime_error("Memory mapping for raw files not implemented yet");
         }
         else {
             // Direct loading for smaller files
+            std::cout << "Opening file for reading..." << std::endl;
             std::ifstream file(raw_path, std::ios::binary);
             if (!file) {
                 throw std::runtime_error("Failed to open raw file: " + raw_path);
             }
+            std::cout << "File opened successfully!" << std::endl;
 
             // Calculate expected file size
             int bytes_per_pixel = (sensor_info_.bit_depth + 7) / 8;
             size_t expected_size = sensor_info_.width * sensor_info_.height * bytes_per_pixel;
+            std::cout << "Expected file size: " << expected_size << " bytes" << std::endl;
+            std::cout << "Sensor info - width: " << sensor_info_.width << ", height: " << sensor_info_.height << ", bit_depth: " << sensor_info_.bit_depth << std::endl;
+            
+            // Determine appropriate OpenCV type based on bit depth
+            int cv_type;
+            if (sensor_info_.bit_depth <= 8) {
+                cv_type = CV_8UC1;
+            } else if (sensor_info_.bit_depth <= 16) {
+                cv_type = CV_16UC1;
+            } else if (sensor_info_.bit_depth <= 24) {
+                cv_type = CV_32SC1;  // Use 32-bit signed for HDR images (OpenCV doesn't have CV_32UC1)
+            } else {
+                throw std::runtime_error("Unsupported bit depth: " + std::to_string(sensor_info_.bit_depth));
+            }
+            std::cout << "OpenCV type: " << cv_type << std::endl;
             
             // Create matrix to hold raw data
-            raw_ = cv::Mat(sensor_info_.height, sensor_info_.width, CV_16UC1);
+            std::cout << "Creating OpenCV matrix..." << std::endl;
+            raw_ = cv::Mat(sensor_info_.height, sensor_info_.width, cv_type);
+            std::cout << "Matrix created successfully!" << std::endl;
             
             // Read raw data
+            std::cout << "Reading raw data..." << std::endl;
             file.read(reinterpret_cast<char*>(raw_.data), expected_size);
             
             if (!file) {
                 throw std::runtime_error("Error reading raw file: " + raw_path);
             }
+            std::cout << "Raw data read successfully!" << std::endl;
+            
+            // For bit depths that don't align with byte boundaries, we need to handle bit shifting
+            if (sensor_info_.bit_depth > 8 && sensor_info_.bit_depth % 8 != 0) {
+                std::cout << "Handling non-byte-aligned bit depth..." << std::endl;
+                // Handle non-byte-aligned bit depths (e.g., 10-bit, 12-bit, 14-bit)
+                handle_non_byte_aligned_bit_depth();
+            }
         }
     }
     else if (path_object.extension() == ".tiff") {
+        std::cout << "Processing .tiff file..." << std::endl;
         if (use_mmap) {
             // TODO: Implement memory mapping for tiff files
             throw std::runtime_error("Memory mapping for tiff files not implemented yet");
@@ -138,6 +181,7 @@ void InfiniteISP::load_raw() {
         }
     }
     else {
+        std::cout << "Processing other format file..." << std::endl;
         // For other formats, use OpenCV
         raw_ = cv::imread(raw_path, cv::IMREAD_UNCHANGED);
     }
@@ -146,10 +190,57 @@ void InfiniteISP::load_raw() {
     std::cout << "Loading RAW Image Done......" << std::endl;
     std::cout << "Filename: " << raw_file_ << std::endl;
     std::cout << "Image size: " << raw_.cols << "x" << raw_.rows << std::endl;
-    std::cout << "Image type: " << raw_.type() << " (CV_8U=" << CV_8U << ", CV_16U=" << CV_16U << ", CV_32F=" << CV_32F << ")" << std::endl;
+    std::cout << "Image type: " << raw_.type() << " (CV_8U=" << CV_8U << ", CV_16U=" << CV_16U << ", CV_32S=" << CV_32S << ", CV_32F=" << CV_32F << ")" << std::endl;
     std::cout << "Image empty: " << (raw_.empty() ? "true" : "false") << std::endl;
     std::cout << "Image channels: " << raw_.channels() << std::endl;
+    std::cout << "Bit depth: " << sensor_info_.bit_depth << " bits" << std::endl;
     std::cout << "--------------------------------------------------" << std::endl;
+}
+
+void InfiniteISP::handle_non_byte_aligned_bit_depth() {
+    // Handle bit depths that don't align with byte boundaries
+    // This is needed for sensors with 10-bit, 12-bit, 14-bit, etc.
+    
+    if (sensor_info_.bit_depth == 10) {
+        // Convert from packed 10-bit to 16-bit
+        cv::Mat temp = raw_.clone();
+        raw_ = cv::Mat(sensor_info_.height, sensor_info_.width, CV_16UC1);
+        
+        for (int i = 0; i < temp.rows; i++) {
+            for (int j = 0; j < temp.cols; j++) {
+                int32_t packed_value = temp.at<int32_t>(i, j);
+                uint16_t unpacked_value = (packed_value & 0x3FF); // Extract 10 bits
+                raw_.at<uint16_t>(i, j) = unpacked_value;
+            }
+        }
+    }
+    else if (sensor_info_.bit_depth == 12) {
+        // Convert from packed 12-bit to 16-bit
+        cv::Mat temp = raw_.clone();
+        raw_ = cv::Mat(sensor_info_.height, sensor_info_.width, CV_16UC1);
+        
+        for (int i = 0; i < temp.rows; i++) {
+            for (int j = 0; j < temp.cols; j++) {
+                uint16_t packed_value = temp.at<uint16_t>(i, j);
+                uint16_t unpacked_value = packed_value & 0x0FFF; // Extract 12 bits
+                raw_.at<uint16_t>(i, j) = unpacked_value;
+            }
+        }
+    }
+    else if (sensor_info_.bit_depth == 14) {
+        // Convert from packed 14-bit to 16-bit
+        cv::Mat temp = raw_.clone();
+        raw_ = cv::Mat(sensor_info_.height, sensor_info_.width, CV_16UC1);
+        
+        for (int i = 0; i < temp.rows; i++) {
+            for (int j = 0; j < temp.cols; j++) {
+                int32_t packed_value = temp.at<int32_t>(i, j);
+                uint16_t unpacked_value = (packed_value & 0x3FFF); // Extract 14 bits
+                raw_.at<uint16_t>(i, j) = unpacked_value;
+            }
+        }
+    }
+    // Add more bit depth handling as needed
 }
 
 cv::Mat InfiniteISP::run_pipeline(bool visualize_output, bool save_intermediate) {
@@ -528,12 +619,17 @@ cv::Mat InfiniteISP::execute_with_3a_statistics(bool save_intermediate) {
 }
 
 void InfiniteISP::execute(const std::string& img_path, bool save_intermediate) {
+    std::cout << "Starting execute() function..." << std::endl;
+    
     if (!img_path.empty()) {
         raw_file_ = img_path;
         config_["platform"]["filename"] = raw_file_;
+        std::cout << "Set raw_file_ to: " << raw_file_ << std::endl;
     }
 
+    std::cout << "About to call load_raw()..." << std::endl;
     load_raw();
+    std::cout << "load_raw() completed successfully" << std::endl;
 
     auto start = std::chrono::high_resolution_clock::now();
 
@@ -544,6 +640,7 @@ void InfiniteISP::execute(const std::string& img_path, bool save_intermediate) {
     ss << std::put_time(std::localtime(&time), "_%Y%m%d_%H%M%S");
     std::string timestamp = ss.str();
 
+    std::cout << "About to run pipeline..." << std::endl;
     cv::Mat final_img;
     if (!render_3a_) {
         final_img = run_pipeline(true, save_intermediate);

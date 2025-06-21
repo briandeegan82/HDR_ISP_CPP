@@ -26,7 +26,7 @@ cv::Mat WhiteBalance::execute()
         std::cout << "White balancing = True" << std::endl;
         auto start = std::chrono::high_resolution_clock::now();
         if (use_eigen_) {
-            hdr_isp::EigenImage result = apply_wb_parameters_eigen();
+            hdr_isp::EigenImage32 result = apply_wb_parameters_eigen();
             img_ = result.toOpenCV(img_.type());
         } else {
             img_ = apply_wb_parameters_opencv();
@@ -121,7 +121,7 @@ cv::Mat WhiteBalance::apply_wb_parameters_opencv()
     return raw_whitebal;
 }
 
-hdr_isp::EigenImage WhiteBalance::apply_wb_parameters_eigen()
+hdr_isp::EigenImage32 WhiteBalance::apply_wb_parameters_eigen()
 {
     float red_gain = parm_wbc_["r_gain"].as<float>();
     float blue_gain = parm_wbc_["b_gain"].as<float>();
@@ -129,59 +129,66 @@ hdr_isp::EigenImage WhiteBalance::apply_wb_parameters_eigen()
         std::cout << "   - WB  - red gain : " << red_gain << std::endl;
         std::cout << "   - WB  - blue gain: " << blue_gain << std::endl;
     }
-    hdr_isp::EigenImage eigen_img = hdr_isp::EigenImage::fromOpenCV(img_);
+    
+    // Convert to integer gains for better performance
+    int red_gain_int = static_cast<int>(red_gain * 1000);
+    int blue_gain_int = static_cast<int>(blue_gain * 1000);
+    
+    hdr_isp::EigenImage32 eigen_img = hdr_isp::EigenImage32::fromOpenCV(img_);
     int rows = eigen_img.rows();
     int cols = eigen_img.cols();
+    
     if (bayer_ == "rggb") {
         for (int i = 0; i < rows; i += 2) {
             for (int j = 0; j < cols; j += 2) {
-                eigen_img.data()(i, j) *= red_gain;
+                eigen_img.data()(i, j) = (eigen_img.data()(i, j) * red_gain_int) / 1000;
             }
         }
         for (int i = 1; i < rows; i += 2) {
             for (int j = 1; j < cols; j += 2) {
-                eigen_img.data()(i, j) *= blue_gain;
+                eigen_img.data()(i, j) = (eigen_img.data()(i, j) * blue_gain_int) / 1000;
             }
         }
     }
     else if (bayer_ == "bggr") {
         for (int i = 0; i < rows; i += 2) {
             for (int j = 0; j < cols; j += 2) {
-                eigen_img.data()(i, j) *= blue_gain;
+                eigen_img.data()(i, j) = (eigen_img.data()(i, j) * blue_gain_int) / 1000;
             }
         }
         for (int i = 1; i < rows; i += 2) {
             for (int j = 1; j < cols; j += 2) {
-                eigen_img.data()(i, j) *= red_gain;
+                eigen_img.data()(i, j) = (eigen_img.data()(i, j) * red_gain_int) / 1000;
             }
         }
     }
     else if (bayer_ == "grbg") {
         for (int i = 1; i < rows; i += 2) {
             for (int j = 0; j < cols; j += 2) {
-                eigen_img.data()(i, j) *= blue_gain;
+                eigen_img.data()(i, j) = (eigen_img.data()(i, j) * blue_gain_int) / 1000;
             }
         }
         for (int i = 0; i < rows; i += 2) {
             for (int j = 1; j < cols; j += 2) {
-                eigen_img.data()(i, j) *= red_gain;
+                eigen_img.data()(i, j) = (eigen_img.data()(i, j) * red_gain_int) / 1000;
             }
         }
     }
     else if (bayer_ == "gbrg") {
         for (int i = 1; i < rows; i += 2) {
             for (int j = 0; j < cols; j += 2) {
-                eigen_img.data()(i, j) *= red_gain;
+                eigen_img.data()(i, j) = (eigen_img.data()(i, j) * red_gain_int) / 1000;
             }
         }
         for (int i = 0; i < rows; i += 2) {
             for (int j = 1; j < cols; j += 2) {
-                eigen_img.data()(i, j) *= blue_gain;
+                eigen_img.data()(i, j) = (eigen_img.data()(i, j) * blue_gain_int) / 1000;
             }
         }
     }
-    float max_val = static_cast<float>((1 << bpp_) - 1);
-    eigen_img.data() = eigen_img.data().cwiseMin(max_val);
+    
+    int max_val = (1 << bpp_) - 1;
+    eigen_img = eigen_img.clip(0, max_val);
     return eigen_img;
 }
 

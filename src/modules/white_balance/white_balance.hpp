@@ -14,7 +14,7 @@ public:
 
 private:
     cv::Mat apply_wb_parameters_opencv();
-    hdr_isp::EigenImage apply_wb_parameters_eigen();
+    hdr_isp::EigenImage32 apply_wb_parameters_eigen();
     void save();
 
     cv::Mat img_;

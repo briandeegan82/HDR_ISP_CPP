@@ -279,4 +279,91 @@ cv::Mat eigen_to_opencv(const EigenImage& eigen_img) {
     return eigen_img.toOpenCV();
 }
 
+// EigenImage32 implementation
+EigenImage32 EigenImage32::fromOpenCV(const cv::Mat& mat) {
+    if (mat.channels() != 1) {
+        throw std::runtime_error("EigenImage32::fromOpenCV: Input must be single-channel");
+    }
+    
+    cv::Mat int_mat;
+    mat.convertTo(int_mat, CV_32S);
+    
+    Eigen::MatrixXi eigen_mat(int_mat.rows, int_mat.cols);
+    for (int i = 0; i < int_mat.rows; ++i) {
+        for (int j = 0; j < int_mat.cols; ++j) {
+            eigen_mat(i, j) = int_mat.at<int32_t>(i, j);
+        }
+    }
+    
+    return EigenImage32(eigen_mat);
+}
+
+cv::Mat EigenImage32::toOpenCV(int opencv_type) const {
+    cv::Mat mat(data_.rows(), data_.cols(), opencv_type);
+    
+    if (opencv_type == CV_32S) {
+        for (int i = 0; i < data_.rows(); ++i) {
+            for (int j = 0; j < data_.cols(); ++j) {
+                mat.at<int32_t>(i, j) = data_(i, j);
+            }
+        }
+    } else if (opencv_type == CV_16U) {
+        for (int i = 0; i < data_.rows(); ++i) {
+            for (int j = 0; j < data_.cols(); ++j) {
+                mat.at<uint16_t>(i, j) = static_cast<uint16_t>(std::max(0, std::min(65535, data_(i, j))));
+            }
+        }
+    } else if (opencv_type == CV_8U) {
+        for (int i = 0; i < data_.rows(); ++i) {
+            for (int j = 0; j < data_.cols(); ++j) {
+                mat.at<uchar>(i, j) = static_cast<uchar>(std::max(0, std::min(255, data_(i, j))));
+            }
+        }
+    } else {
+        throw std::runtime_error("EigenImage32::toOpenCV: Unsupported OpenCV type");
+    }
+    
+    return mat;
+}
+
+EigenImage32 EigenImage32::clip(int min_val, int max_val) const {
+    Eigen::MatrixXi clipped = data_.cwiseMax(min_val).cwiseMin(max_val);
+    return EigenImage32(clipped);
+}
+
+EigenImage32 EigenImage32::extractBayerChannel(const std::string& bayer_pattern, char channel) const {
+    EigenImage32 result(rows(), cols());
+    result.data().setZero();
+    
+    if (bayer_pattern == "rggb") {
+        if (channel == 'r') {
+            for (int i = 0; i < rows(); i += 2) {
+                for (int j = 0; j < cols(); j += 2) {
+                    result.data()(i, j) = data_(i, j);
+                }
+            }
+        } else if (channel == 'g') {
+            for (int i = 0; i < rows(); i += 2) {
+                for (int j = 1; j < cols(); j += 2) {
+                    result.data()(i, j) = data_(i, j);
+                }
+            }
+            for (int i = 1; i < rows(); i += 2) {
+                for (int j = 0; j < cols(); j += 2) {
+                    result.data()(i, j) = data_(i, j);
+                }
+            }
+        } else if (channel == 'b') {
+            for (int i = 1; i < rows(); i += 2) {
+                for (int j = 1; j < cols(); j += 2) {
+                    result.data()(i, j) = data_(i, j);
+                }
+            }
+        }
+    }
+    // Add other Bayer patterns as needed
+    
+    return result;
+}
+
 } // namespace hdr_isp 
