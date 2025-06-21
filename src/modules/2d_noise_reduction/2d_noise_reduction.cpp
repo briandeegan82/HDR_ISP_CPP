@@ -88,29 +88,61 @@ cv::Mat NoiseReduction2D::apply_noise_reduction() {
 }
 
 hdr_isp::EigenImage NoiseReduction2D::apply_noise_reduction_eigen() {
-    // Convert to Eigen
-    hdr_isp::EigenImage eigen_img = hdr_isp::opencv_to_eigen(img_);
-    
-    // Apply bilateral filter
-    hdr_isp::EigenImage filtered = apply_bilateral_filter_eigen(eigen_img);
-    
-    // Apply bit depth scaling
-    if (output_bit_depth_ == 8) {
-        filtered = filtered * 255.0f;
-        filtered = filtered.cwiseMax(0.0f).cwiseMin(255.0f);
+    // Check if image is single-channel or multi-channel
+    if (img_.channels() == 1) {
+        // Single-channel processing
+        hdr_isp::EigenImage eigen_img = hdr_isp::opencv_to_eigen(img_);
+        
+        // Apply bilateral filter
+        hdr_isp::EigenImage filtered = apply_bilateral_filter_eigen(eigen_img);
+        
+        // Apply bit depth scaling
+        if (output_bit_depth_ == 8) {
+            filtered = filtered * 255.0f;
+            filtered = filtered.cwiseMax(0.0f).cwiseMin(255.0f);
+        }
+        else if (output_bit_depth_ == 16) {
+            filtered = filtered * 65535.0f;
+            filtered = filtered.cwiseMax(0.0f).cwiseMin(65535.0f);
+        }
+        else if (output_bit_depth_ == 32) {
+            // Keep as float
+        }
+        else {
+            throw std::runtime_error("Unsupported output bit depth. Use 8, 16, or 32.");
+        }
+        
+        return filtered;
+    } else if (img_.channels() == 3) {
+        // Multi-channel processing - convert to grayscale for noise reduction
+        cv::Mat gray_img;
+        cv::cvtColor(img_, gray_img, cv::COLOR_BGR2GRAY);
+        
+        hdr_isp::EigenImage eigen_img = hdr_isp::opencv_to_eigen(gray_img);
+        
+        // Apply bilateral filter
+        hdr_isp::EigenImage filtered = apply_bilateral_filter_eigen(eigen_img);
+        
+        // Apply bit depth scaling
+        if (output_bit_depth_ == 8) {
+            filtered = filtered * 255.0f;
+            filtered = filtered.cwiseMax(0.0f).cwiseMin(255.0f);
+        }
+        else if (output_bit_depth_ == 16) {
+            filtered = filtered * 65535.0f;
+            filtered = filtered.cwiseMax(0.0f).cwiseMin(65535.0f);
+        }
+        else if (output_bit_depth_ == 32) {
+            // Keep as float
+        }
+        else {
+            throw std::runtime_error("Unsupported output bit depth. Use 8, 16, or 32.");
+        }
+        
+        return filtered;
+    } else {
+        throw std::runtime_error("Unsupported number of channels. Use 1 or 3 channels.");
     }
-    else if (output_bit_depth_ == 16) {
-        filtered = filtered * 65535.0f;
-        filtered = filtered.cwiseMax(0.0f).cwiseMin(65535.0f);
-    }
-    else if (output_bit_depth_ == 32) {
-        // Keep as float
-    }
-    else {
-        throw std::runtime_error("Unsupported output bit depth. Use 8, 16, or 32.");
-    }
-    
-    return filtered;
 }
 
 void NoiseReduction2D::save() {
@@ -129,8 +161,29 @@ cv::Mat NoiseReduction2D::execute() {
     auto start = std::chrono::high_resolution_clock::now();
     
     if (use_eigen_) {
-        hdr_isp::EigenImage eigen_result = apply_noise_reduction_eigen();
-        img_ = hdr_isp::eigen_to_opencv(eigen_result);
+        if (img_.channels() == 1) {
+            // Single-channel processing
+            hdr_isp::EigenImage eigen_result = apply_noise_reduction_eigen();
+            img_ = hdr_isp::eigen_to_opencv(eigen_result);
+        } else if (img_.channels() == 3) {
+            // Multi-channel processing - apply noise reduction to each channel separately
+            std::vector<cv::Mat> channels;
+            cv::split(img_, channels);
+            
+            for (int i = 0; i < 3; ++i) {
+                // Create a temporary single-channel image
+                cv::Mat temp_img = channels[i];
+                
+                // Apply noise reduction to this channel
+                NoiseReduction2D temp_nr(temp_img, platform_, sensor_info_, params_);
+                channels[i] = temp_nr.apply_noise_reduction();
+            }
+            
+            // Merge channels back
+            cv::merge(channels, img_);
+        } else {
+            throw std::runtime_error("Unsupported number of channels. Use 1 or 3 channels.");
+        }
     } else {
         img_ = apply_noise_reduction();
     }

@@ -40,22 +40,15 @@ InfiniteISP::InfiniteISP(const std::string& data_path, const std::string& config
 
 void InfiniteISP::load_config(const std::string& config_path) {
     try {
-        std::cout << "line 43" << std::endl;
         config_ = YAML::LoadFile(config_path);
-        std::cout << "line 44" << std::endl;
         // Extract workspace info
         raw_file_ = config_["platform"]["filename"].as<std::string>();
         render_3a_ = config_["platform"]["render_3a"].as<bool>();
-        std::cout << "line 47" << std::endl;
         // Extract basic sensor info
         sensor_info_.width = config_["sensor_info"]["width"].as<int>();
-        std::cout << "line 54" << std::endl;
         sensor_info_.height = config_["sensor_info"]["height"].as<int>();
-        std::cout << "line 56" << std::endl;
         sensor_info_.bit_depth = config_["sensor_info"]["bit_depth"].as<int>();
-        std::cout << "line 58" << std::endl;
         sensor_info_.bayer_pattern = config_["sensor_info"]["bayer_pattern"].as<std::string>();
-        std::cout << "line 55" << std::endl;
         // Get ISP module parameters
         parm_dpc_ = config_["dead_pixel_correction"];
         parm_cmpd_ = config_["companding"];
@@ -75,12 +68,11 @@ void InfiniteISP::load_config(const std::string& config_path) {
         parm_cse_ = config_["color_saturation_enhancement"];
         parm_ldci_ = config_["ldci"];
         parm_sha_ = config_["sharpen"];
-        parm_2dn_ = config_["2d_noise_reduction"];
+        parm_2dn_ = config_["noise_reduction_2d"];
         parm_rgb_ = config_["rgb_conversion"];
         parm_sca_ = config_["scale"];
         parm_cro_ = config_["crop"];
         parm_yuv_ = config_["yuv_conversion_format"];
-        std::cout << "line 79" << std::endl;
         config_["platform"]["rgb_output"] = parm_rgb_["is_enable"].as<bool>();
     }
     catch (const std::exception& e) {
@@ -441,6 +433,7 @@ cv::Mat InfiniteISP::run_pipeline(bool visualize_output, bool save_intermediate)
     // =====================================================================
     // 19. 2d noise reduction
     std::cout << "2d noise reduction" << std::endl;
+    
     if (parm_2dn_["is_enable"].as<bool>()) {
         NoiseReduction2D nr2d(img, config_["platform"], config_["sensor_info"], parm_2dn_);
         img = nr2d.execute();

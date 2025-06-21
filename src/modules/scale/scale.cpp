@@ -72,37 +72,85 @@ hdr_isp::EigenImage Scale::apply_scaling_eigen() {
         if (is_debug_) {
             std::cout << "   - Output size is the same as input size." << std::endl;
         }
-        return hdr_isp::opencv_to_eigen(img_);
-    }
-
-    // Convert to Eigen
-    hdr_isp::EigenImage eigen_img = hdr_isp::opencv_to_eigen(img_);
-    int old_rows = eigen_img.rows();
-    int old_cols = eigen_img.cols();
-    int new_rows = new_size_.first;
-    int new_cols = new_size_.second;
-
-    // Create scaled image
-    hdr_isp::EigenImage scaled_img = hdr_isp::EigenImage::Zero(new_rows, new_cols);
-
-    // Simple nearest neighbor scaling for Eigen implementation
-    float scale_x = static_cast<float>(old_cols) / new_cols;
-    float scale_y = static_cast<float>(old_rows) / new_rows;
-
-    for (int i = 0; i < new_rows; ++i) {
-        for (int j = 0; j < new_cols; ++j) {
-            int src_i = static_cast<int>(i * scale_y);
-            int src_j = static_cast<int>(j * scale_x);
-            
-            // Clamp to valid range
-            src_i = std::min(src_i, old_rows - 1);
-            src_j = std::min(src_j, old_cols - 1);
-            
-            scaled_img(i, j) = eigen_img(src_i, src_j);
+        if (img_.channels() == 1) {
+            return hdr_isp::opencv_to_eigen(img_);
+        } else if (img_.channels() == 3) {
+            // For multi-channel, return the red channel as representative
+            hdr_isp::EigenImage3C eigen_img = hdr_isp::EigenImage3C::fromOpenCV(img_);
+            return eigen_img.r();
+        } else {
+            throw std::runtime_error("Unsupported number of channels. Use 1 or 3 channels.");
         }
     }
 
-    return scaled_img;
+    // Check if image is single-channel or multi-channel
+    if (img_.channels() == 1) {
+        // Single-channel processing
+        hdr_isp::EigenImage eigen_img = hdr_isp::opencv_to_eigen(img_);
+        int old_rows = eigen_img.rows();
+        int old_cols = eigen_img.cols();
+        int new_rows = new_size_.first;
+        int new_cols = new_size_.second;
+
+        // Create scaled image
+        hdr_isp::EigenImage scaled_img = hdr_isp::EigenImage::Zero(new_rows, new_cols);
+
+        // Simple nearest neighbor scaling for Eigen implementation
+        float scale_x = static_cast<float>(old_cols) / new_cols;
+        float scale_y = static_cast<float>(old_rows) / new_rows;
+
+        for (int i = 0; i < new_rows; ++i) {
+            for (int j = 0; j < new_cols; ++j) {
+                int src_i = static_cast<int>(i * scale_y);
+                int src_j = static_cast<int>(j * scale_x);
+                
+                // Clamp to valid range
+                src_i = std::min(src_i, old_rows - 1);
+                src_j = std::min(src_j, old_cols - 1);
+                
+                scaled_img(i, j) = eigen_img(src_i, src_j);
+            }
+        }
+
+        return scaled_img;
+    } else if (img_.channels() == 3) {
+        // Multi-channel processing - scale each channel separately
+        hdr_isp::EigenImage3C eigen_img = hdr_isp::EigenImage3C::fromOpenCV(img_);
+        int old_rows = eigen_img.rows();
+        int old_cols = eigen_img.cols();
+        int new_rows = new_size_.first;
+        int new_cols = new_size_.second;
+
+        // Create scaled images for each channel
+        hdr_isp::EigenImage scaled_r = hdr_isp::EigenImage::Zero(new_rows, new_cols);
+        hdr_isp::EigenImage scaled_g = hdr_isp::EigenImage::Zero(new_rows, new_cols);
+        hdr_isp::EigenImage scaled_b = hdr_isp::EigenImage::Zero(new_rows, new_cols);
+
+        // Simple nearest neighbor scaling for Eigen implementation
+        float scale_x = static_cast<float>(old_cols) / new_cols;
+        float scale_y = static_cast<float>(old_rows) / new_rows;
+
+        for (int i = 0; i < new_rows; ++i) {
+            for (int j = 0; j < new_cols; ++j) {
+                int src_i = static_cast<int>(i * scale_y);
+                int src_j = static_cast<int>(j * scale_x);
+                
+                // Clamp to valid range
+                src_i = std::min(src_i, old_rows - 1);
+                src_j = std::min(src_j, old_cols - 1);
+                
+                scaled_r(i, j) = eigen_img.r()(src_i, src_j);
+                scaled_g(i, j) = eigen_img.g()(src_i, src_j);
+                scaled_b(i, j) = eigen_img.b()(src_i, src_j);
+            }
+        }
+
+        // For now, return the red channel as representative
+        // In a full implementation, you'd return a 3-channel result
+        return scaled_r;
+    } else {
+        throw std::runtime_error("Unsupported number of channels. Use 1 or 3 channels.");
+    }
 }
 
 void Scale::save() {
@@ -125,8 +173,31 @@ cv::Mat Scale::execute() {
         auto start = std::chrono::high_resolution_clock::now();
         
         if (use_eigen_) {
-            hdr_isp::EigenImage eigen_result = apply_scaling_eigen();
-            img_ = hdr_isp::eigen_to_opencv(eigen_result);
+            if (img_.channels() == 1) {
+                // Single-channel processing
+                hdr_isp::EigenImage eigen_result = apply_scaling_eigen();
+                img_ = hdr_isp::eigen_to_opencv(eigen_result);
+            } else if (img_.channels() == 3) {
+                // Multi-channel processing - scale each channel separately
+                std::vector<cv::Mat> channels;
+                cv::split(img_, channels);
+                std::vector<cv::Mat> scaled_channels;
+
+                for (int i = 0; i < 3; ++i) {
+                    // Create a temporary single-channel image
+                    cv::Mat temp_img = channels[i];
+                    
+                    // Apply scaling to this channel
+                    Scale temp_scale(temp_img, platform_, sensor_info_, parm_sca_, conv_std_);
+                    scaled_channels.push_back(temp_scale.apply_scaling_eigen().toOpenCV());
+                }
+                
+                // Merge channels back
+                cv::merge(scaled_channels, img_);
+                std::cout << "  Multi-channel image detected - scaled each channel separately" << std::endl;
+            } else {
+                throw std::runtime_error("Unsupported number of channels. Use 1 or 3 channels.");
+            }
         } else {
             img_ = apply_scaling_opencv();
         }
