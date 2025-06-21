@@ -79,69 +79,165 @@ cv::Mat Sharpen::apply_sharpen_opencv() {
     return output;
 }
 
-hdr_isp::EigenImage Sharpen::apply_sharpen_eigen() {
+cv::Mat Sharpen::apply_sharpen_eigen() {
     if (is_debug_) {
         std::cout << "Applying sharpening with strength: " << strength_ 
                   << ", kernel size: " << kernel_size_ << std::endl;
     }
 
-    // Convert to Eigen
-    hdr_isp::EigenImage eigen_img = hdr_isp::opencv_to_eigen(img_);
-    int rows = eigen_img.rows();
-    int cols = eigen_img.cols();
+    // Check if image is multi-channel (RGB after demosaicing)
+    if (img_.channels() == 3) {
+        // Use EigenImage3C for 3-channel RGB image
+        hdr_isp::EigenImage3C eigen_img = hdr_isp::EigenImage3C::fromOpenCV(img_);
+        int rows = eigen_img.rows();
+        int cols = eigen_img.cols();
 
-    // Create sharpening kernel using Eigen
-    Eigen::MatrixXf kernel = Eigen::MatrixXf::Zero(kernel_size_, kernel_size_);
-    float center = kernel_size_ / 2.0f;
-    float sigma = kernel_size_ / 6.0f;
-    
-    // Create Gaussian kernel
-    for (int i = 0; i < kernel_size_; i++) {
-        for (int j = 0; j < kernel_size_; j++) {
-            float x = i - center;
-            float y = j - center;
-            kernel(i, j) = std::exp(-(x*x + y*y) / (2 * sigma * sigma));
-        }
-    }
-    
-    // Normalize kernel
-    kernel = kernel / kernel.sum();
-
-    // Create sharpening kernel (Laplacian of Gaussian)
-    Eigen::MatrixXf kernel_laplacian = Eigen::MatrixXf::Ones(kernel_size_, kernel_size_);
-    kernel_laplacian /= kernel_size_ * kernel_size_;  // Simple average blur kernel
-
-    kernel = kernel - kernel_laplacian;
-    Eigen::MatrixXf laplacian = kernel_laplacian;
-
-    // Apply convolution using Eigen
-    hdr_isp::EigenImage sharpened = hdr_isp::EigenImage::Zero(rows, cols);
-    
-    int pad = kernel_size_ / 2;
-    for (int i = pad; i < rows - pad; i++) {
-        for (int j = pad; j < cols - pad; j++) {
-            float sum = 0.0f;
-            for (int ki = 0; ki < kernel_size_; ki++) {
-                for (int kj = 0; kj < kernel_size_; kj++) {
-                    sum += eigen_img(i + ki - pad, j + kj - pad) * laplacian(ki, kj);
-                }
+        // Create sharpening kernel using Eigen
+        Eigen::MatrixXf kernel = Eigen::MatrixXf::Zero(kernel_size_, kernel_size_);
+        float center = kernel_size_ / 2.0f;
+        float sigma = kernel_size_ / 6.0f;
+        
+        // Create Gaussian kernel
+        for (int i = 0; i < kernel_size_; i++) {
+            for (int j = 0; j < kernel_size_; j++) {
+                float x = i - center;
+                float y = j - center;
+                kernel(i, j) = std::exp(-(x*x + y*y) / (2 * sigma * sigma));
             }
-            sharpened(i, j) = sum;
         }
+        
+        // Normalize kernel
+        kernel = kernel / kernel.sum();
+
+        // Create sharpening kernel (Laplacian of Gaussian)
+        Eigen::MatrixXf laplacian = Eigen::MatrixXf::Zero(kernel_size_, kernel_size_);
+        laplacian(static_cast<int>(center), static_cast<int>(center)) = 1.0f;
+        laplacian = laplacian - kernel;
+
+        // Apply convolution to each channel
+        hdr_isp::EigenImage sharpened_r = hdr_isp::EigenImage::Zero(rows, cols);
+        hdr_isp::EigenImage sharpened_g = hdr_isp::EigenImage::Zero(rows, cols);
+        hdr_isp::EigenImage sharpened_b = hdr_isp::EigenImage::Zero(rows, cols);
+        
+        int pad = kernel_size_ / 2;
+        for (int i = pad; i < rows - pad; i++) {
+            for (int j = pad; j < cols - pad; j++) {
+                float sum_r = 0.0f, sum_g = 0.0f, sum_b = 0.0f;
+                for (int ki = 0; ki < kernel_size_; ki++) {
+                    for (int kj = 0; kj < kernel_size_; kj++) {
+                        sum_r += eigen_img.r()(i + ki - pad, j + kj - pad) * laplacian(ki, kj);
+                        sum_g += eigen_img.g()(i + ki - pad, j + kj - pad) * laplacian(ki, kj);
+                        sum_b += eigen_img.b()(i + ki - pad, j + kj - pad) * laplacian(ki, kj);
+                    }
+                }
+                sharpened_r(i, j) = sum_r;
+                sharpened_g(i, j) = sum_g;
+                sharpened_b(i, j) = sum_b;
+            }
+        }
+
+        // Blend with original image for each channel
+        hdr_isp::EigenImage result_r = eigen_img.r() + sharpened_r * strength_;
+        hdr_isp::EigenImage result_g = eigen_img.g() + sharpened_g * strength_;
+        hdr_isp::EigenImage result_b = eigen_img.b() + sharpened_b * strength_;
+
+        // Apply bit depth conversion to each channel
+        if (output_bit_depth_ == 8) {
+            result_r = result_r.cwiseMax(0.0f).cwiseMin(255.0f);
+            result_g = result_g.cwiseMax(0.0f).cwiseMin(255.0f);
+            result_b = result_b.cwiseMax(0.0f).cwiseMin(255.0f);
+        } else if (output_bit_depth_ == 16) {
+            result_r = result_r.cwiseMax(0.0f).cwiseMin(65535.0f);
+            result_g = result_g.cwiseMax(0.0f).cwiseMin(65535.0f);
+            result_b = result_b.cwiseMax(0.0f).cwiseMin(65535.0f);
+        }
+
+        // Create result EigenImage3C
+        hdr_isp::EigenImage3C result(rows, cols);
+        result.r().data() = result_r.data();
+        result.g().data() = result_g.data();
+        result.b().data() = result_b.data();
+
+        // Convert back to OpenCV Mat
+        int output_type;
+        if (output_bit_depth_ == 8) {
+            output_type = CV_8UC3;
+        } else if (output_bit_depth_ == 16) {
+            output_type = CV_16UC3;
+        } else if (output_bit_depth_ == 32) {
+            output_type = CV_32FC3;
+        } else {
+            throw std::runtime_error("Unsupported output bit depth: " + std::to_string(output_bit_depth_));
+        }
+        return result.toOpenCV(output_type);
+    } else {
+        // Single-channel image (before demosaicing)
+        hdr_isp::EigenImage eigen_img = hdr_isp::opencv_to_eigen(img_);
+        int rows = eigen_img.rows();
+        int cols = eigen_img.cols();
+
+        // Create sharpening kernel using Eigen
+        Eigen::MatrixXf kernel = Eigen::MatrixXf::Zero(kernel_size_, kernel_size_);
+        float center = kernel_size_ / 2.0f;
+        float sigma = kernel_size_ / 6.0f;
+        
+        // Create Gaussian kernel
+        for (int i = 0; i < kernel_size_; i++) {
+            for (int j = 0; j < kernel_size_; j++) {
+                float x = i - center;
+                float y = j - center;
+                kernel(i, j) = std::exp(-(x*x + y*y) / (2 * sigma * sigma));
+            }
+        }
+        
+        // Normalize kernel
+        kernel = kernel / kernel.sum();
+
+        // Create sharpening kernel (Laplacian of Gaussian)
+        Eigen::MatrixXf laplacian = Eigen::MatrixXf::Zero(kernel_size_, kernel_size_);
+        laplacian(static_cast<int>(center), static_cast<int>(center)) = 1.0f;
+        laplacian = laplacian - kernel;
+
+        // Apply convolution using Eigen
+        hdr_isp::EigenImage sharpened = hdr_isp::EigenImage::Zero(rows, cols);
+        
+        int pad = kernel_size_ / 2;
+        for (int i = pad; i < rows - pad; i++) {
+            for (int j = pad; j < cols - pad; j++) {
+                float sum = 0.0f;
+                for (int ki = 0; ki < kernel_size_; ki++) {
+                    for (int kj = 0; kj < kernel_size_; kj++) {
+                        sum += eigen_img(i + ki - pad, j + kj - pad) * laplacian(ki, kj);
+                    }
+                }
+                sharpened(i, j) = sum;
+            }
+        }
+
+        // Blend with original image
+        hdr_isp::EigenImage result = eigen_img + sharpened * strength_;
+
+        // Apply bit depth conversion
+        if (output_bit_depth_ == 8) {
+            result = result.cwiseMax(0.0f).cwiseMin(255.0f);
+        } else if (output_bit_depth_ == 16) {
+            result = result.cwiseMax(0.0f).cwiseMin(65535.0f);
+        }
+        // For 32-bit, no clipping needed
+
+        // Convert back to OpenCV Mat
+        int output_type;
+        if (output_bit_depth_ == 8) {
+            output_type = CV_8U;
+        } else if (output_bit_depth_ == 16) {
+            output_type = CV_16U;
+        } else if (output_bit_depth_ == 32) {
+            output_type = CV_32F;
+        } else {
+            throw std::runtime_error("Unsupported output bit depth: " + std::to_string(output_bit_depth_));
+        }
+        return result.toOpenCV(output_type);
     }
-
-    // Blend with original image
-    hdr_isp::EigenImage result = eigen_img + sharpened * strength_;
-
-    // Apply bit depth conversion
-    if (output_bit_depth_ == 8) {
-        result = result.cwiseMax(0.0f).cwiseMin(255.0f);
-    } else if (output_bit_depth_ == 16) {
-        result = result.cwiseMax(0.0f).cwiseMin(65535.0f);
-    }
-    // For 32-bit, no clipping needed
-
-    return result;
 }
 
 void Sharpen::save(const std::string& filename) {
@@ -163,8 +259,7 @@ cv::Mat Sharpen::execute() {
     auto start = std::chrono::high_resolution_clock::now();
 
     if (use_eigen_) {
-        hdr_isp::EigenImage eigen_result = apply_sharpen_eigen();
-        img_ = hdr_isp::eigen_to_opencv(eigen_result);
+        img_ = apply_sharpen_eigen();
     } else {
         img_ = apply_sharpen_opencv();
     }

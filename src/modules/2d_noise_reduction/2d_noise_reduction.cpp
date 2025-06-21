@@ -12,13 +12,13 @@ NoiseReduction2D::NoiseReduction2D(const cv::Mat& img, const YAML::Node& platfor
     , platform_(platform)
     , sensor_info_(sensor_info)
     , params_(params)
-    , is_enable_(params["is_enable"].as<bool>())
-    , is_save_(params["is_save"].as<bool>())
-    , is_debug_(params["is_debug"].as<bool>())
-    , sigma_space_(params["sigma_space"].as<float>())
-    , sigma_color_(params["sigma_color"].as<float>())
-    , window_size_(params["window_size"].as<int>())
-    , output_bit_depth_(sensor_info["output_bit_depth"].as<int>())
+    , is_enable_(params["is_enable"].IsDefined() ? params["is_enable"].as<bool>() : false)
+    , is_save_(params["is_save"].IsDefined() ? params["is_save"].as<bool>() : false)
+    , is_debug_(params["is_debug"].IsDefined() ? params["is_debug"].as<bool>() : false)
+    , sigma_space_(params["sigma_space"].IsDefined() ? params["sigma_space"].as<float>() : 1.0f)
+    , sigma_color_(params["sigma_color"].IsDefined() ? params["sigma_color"].as<float>() : 1.0f)
+    , window_size_(params["window_size"].IsDefined() ? params["window_size"].as<int>() : 3)
+    , output_bit_depth_(sensor_info["output_bit_depth"].IsDefined() ? sensor_info["output_bit_depth"].as<int>() : 16)
     , use_eigen_(true) // Use Eigen by default
 {
 }

@@ -66,6 +66,7 @@ EigenImage3C EigenImage3C::fromOpenCV(const cv::Mat& mat) {
     cv::split(mat, channels);
     
     EigenImage3C result(mat.rows, mat.cols);
+    
     result.r_ = EigenImage::fromOpenCV(channels[0]);
     result.g_ = EigenImage::fromOpenCV(channels[1]);
     result.b_ = EigenImage::fromOpenCV(channels[2]);

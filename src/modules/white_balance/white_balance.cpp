@@ -15,7 +15,7 @@ WhiteBalance::WhiteBalance(const cv::Mat& img, const YAML::Node& platform, const
     is_auto_ = parm_wbc_["is_auto"].as<bool>();
     is_debug_ = parm_wbc_["is_debug"].as<bool>();
     bayer_ = sensor_info_["bayer_pattern"].as<std::string>();
-    bpp_ = sensor_info_["hdr_bit_depth"].as<int>();
+    bpp_ = sensor_info_["bit_depth"].as<int>();
     raw_ = img.clone();
     use_eigen_ = true; // Use Eigen by default
 }

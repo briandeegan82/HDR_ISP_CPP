@@ -15,7 +15,7 @@ public:
 private:
     std::vector<uint32_t> generate_gamma_lut(int bit_depth);
     cv::Mat apply_gamma_opencv();
-    hdr_isp::EigenImage apply_gamma_eigen();
+    cv::Mat apply_gamma_eigen();
     void save();
 
     cv::Mat img_;

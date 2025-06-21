@@ -415,9 +415,23 @@ cv::Mat InfiniteISP::run_pipeline(bool visualize_output, bool save_intermediate)
     std::cout << "Sharpening" << std::endl;
     if (parm_sha_["is_enable"].as<bool>()) {
         std::cout << "Applying sharpening..." << std::endl;
-        Sharpen sharpen(img, config_["platform"], config_["sensor_info"], parm_sha_, 
-                      parm_csc_["conv_std"].as<std::string>());
-        img = sharpen.execute();
+        
+        try {
+            // Get conv_std with default value if not defined
+            std::string conv_std_value = "709"; // Default value
+            if (parm_csc_.IsDefined() && parm_csc_["conv_std"].IsDefined()) {
+                conv_std_value = parm_csc_["conv_std"].as<std::string>();
+            }
+            
+            Sharpen sharpen(img, config_["platform"], config_["sensor_info"], parm_sha_, conv_std_value);
+            
+            img = sharpen.execute();
+            
+        } catch (const std::exception& e) {
+            std::cerr << "Exception during Sharpen creation/execution: " << e.what() << std::endl;
+            throw;
+        }
+        
         if (save_intermediate) {
             fs::path output_path = intermediate_dir / "sharpen.png";
             cv::imwrite(output_path.string(), img);
@@ -453,8 +467,22 @@ cv::Mat InfiniteISP::run_pipeline(bool visualize_output, bool save_intermediate)
     std::cout << "Scaling" << std::endl;
     if (parm_sca_["is_enable"].as<bool>()) {
         std::cout << "Applying scaling..." << std::endl;
-        Scale scale(img, config_["platform"], config_["sensor_info"], parm_sca_, parm_csc_["conv_std"].as<int>());
-        img = scale.execute();
+        
+        try {
+            // Get conv_std with default value if not defined
+            int conv_std_value = 709; // Default value
+            if (parm_csc_.IsDefined() && parm_csc_["conv_std"].IsDefined()) {
+                conv_std_value = parm_csc_["conv_std"].as<int>();
+            }
+            
+            Scale scale(img, config_["platform"], config_["sensor_info"], parm_sca_, conv_std_value);
+            img = scale.execute();
+            
+        } catch (const std::exception& e) {
+            std::cerr << "Exception during Scale creation/execution: " << e.what() << std::endl;
+            throw;
+        }
+        
         if (save_intermediate) {
             fs::path output_path = intermediate_dir / "scale.png";
             cv::imwrite(output_path.string(), img);

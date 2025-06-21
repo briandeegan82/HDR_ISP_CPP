@@ -13,7 +13,7 @@ public:
 
 private:
     cv::Mat apply_ccm_opencv();
-    hdr_isp::EigenImage apply_ccm_eigen();
+    cv::Mat apply_ccm_eigen();
 
     cv::Mat raw_;
     YAML::Node sensor_info_;

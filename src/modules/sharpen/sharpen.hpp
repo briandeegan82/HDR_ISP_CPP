@@ -14,7 +14,7 @@ public:
 
 private:
     cv::Mat apply_sharpen_opencv();
-    hdr_isp::EigenImage apply_sharpen_eigen();
+    cv::Mat apply_sharpen_eigen();
     void get_sharpen_params();
     void save(const std::string& filename);
 

@@ -121,6 +121,15 @@ gamma_correction:
   # 8-bit
   is_save: false
 
+hdr_durand:
+  is_enable: false
+  is_save: false
+  is_debug: false
+  sigma_space: 2.0
+  sigma_color: 0.1
+  contrast_factor: 5.0
+  downsample_factor: 4
+
 auto_exposure:
   is_enable: false
   is_debug: true
@@ -148,8 +157,12 @@ ldci:
 
 sharpen:
   is_enable: true
+  is_debug: false
   sharpen_sigma: 5
   sharpen_strength: 1
+  strength: 1
+  kernel_size: 5
+  output_bit_depth: 16
   is_save: false
 
 noise_reduction_2d:

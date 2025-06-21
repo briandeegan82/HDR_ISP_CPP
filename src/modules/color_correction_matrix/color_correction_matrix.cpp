@@ -23,8 +23,7 @@ cv::Mat ColorCorrectionMatrix::execute() {
     
     cv::Mat result;
     if (use_eigen_) {
-        hdr_isp::EigenImage eigen_result = apply_ccm_eigen();
-        result = hdr_isp::eigen_to_opencv(eigen_result);
+        result = apply_ccm_eigen();
     } else {
         result = apply_ccm_opencv();
     }
@@ -164,7 +163,7 @@ cv::Mat ColorCorrectionMatrix::apply_ccm_opencv() {
     return output;
 }
 
-hdr_isp::EigenImage ColorCorrectionMatrix::apply_ccm_eigen() {
+cv::Mat ColorCorrectionMatrix::apply_ccm_eigen() {
     // Get CCM parameters
     std::vector<float> corrected_red = parm_ccm_["corrected_red"].as<std::vector<float>>();
     std::vector<float> corrected_green = parm_ccm_["corrected_green"].as<std::vector<float>>();
@@ -176,26 +175,20 @@ hdr_isp::EigenImage ColorCorrectionMatrix::apply_ccm_eigen() {
     ccm_eigen.row(1) = Eigen::Map<Eigen::Vector3f>(corrected_green.data());
     ccm_eigen.row(2) = Eigen::Map<Eigen::Vector3f>(corrected_blue.data());
 
-    // Convert input to Eigen
-    hdr_isp::EigenImage eigen_img = hdr_isp::opencv_to_eigen(raw_);
-    int rows = eigen_img.rows();
-    int cols = eigen_img.cols();
+    // Convert input to EigenImage3C for 3-channel RGB image
+    hdr_isp::EigenImage3C eigen_img = hdr_isp::EigenImage3C::fromOpenCV(raw_);
 
-    // Reshape to Nx3 matrix for matrix multiplication
-    Eigen::MatrixXf reshaped = eigen_img.data().reshaped(rows * cols / 3, 3);
-
-    // Apply CCM using Eigen matrix multiplication
-    Eigen::MatrixXf result = reshaped * ccm_eigen.transpose();
-
-    // Reshape back to original dimensions
-    hdr_isp::EigenImage output = hdr_isp::EigenImage(result.reshaped(rows, cols));
+    // Apply CCM using matrix multiplication
+    hdr_isp::EigenImage3C result = eigen_img * ccm_eigen;
 
     // Apply bit depth conversion
     if (output_bit_depth_ == 8) {
-        output = output.cwiseMax(0.0f).cwiseMin(255.0f);
+        result = result.clip(0.0f, 255.0f);
     } else if (output_bit_depth_ == 16) {
-        output = output.cwiseMax(0.0f).cwiseMin(65535.0f);
+        result = result.clip(0.0f, 65535.0f);
     }
 
+    // Convert back to OpenCV Mat
+    cv::Mat output = result.toOpenCV(CV_16UC3);
     return output;
 } 
