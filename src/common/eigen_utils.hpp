@@ -9,6 +9,10 @@ namespace hdr_isp {
 // Forward declarations
 class EigenImage;
 class EigenImage3C;
+class EigenImageU32;
+
+// Type aliases for backward compatibility
+using EigenImage32 = EigenImageU32;
 
 /**
  * @brief Single-channel Eigen-based image class
@@ -157,26 +161,26 @@ private:
 };
 
 /**
- * @brief Single-channel Eigen-based image class for 32-bit integer processing
+ * @brief Single-channel Eigen-based image class for 32-bit unsigned integer processing
  * 
- * This class provides a wrapper around Eigen::MatrixXi for single-channel images,
- * optimized for early pipeline stages that need integer precision.
+ * This class provides a wrapper around Eigen::Matrix<uint32_t> for single-channel images,
+ * optimized for HDR pipeline stages that need unsigned integer precision.
  */
-class EigenImage32 {
+class EigenImageU32 {
 public:
-    EigenImage32() = default;
-    EigenImage32(int rows, int cols) : data_(rows, cols) {}
-    EigenImage32(const Eigen::MatrixXi& matrix) : data_(matrix) {}
+    EigenImageU32() = default;
+    EigenImageU32(int rows, int cols) : data_(rows, cols) {}
+    EigenImageU32(const Eigen::Matrix<uint32_t, Eigen::Dynamic, Eigen::Dynamic>& matrix) : data_(matrix) {}
     
     // Conversion from OpenCV Mat
-    static EigenImage32 fromOpenCV(const cv::Mat& mat);
+    static EigenImageU32 fromOpenCV(const cv::Mat& mat);
     
     // Conversion to OpenCV Mat
     cv::Mat toOpenCV(int opencv_type = CV_32SC1) const;
     
     // Access to underlying data
-    Eigen::MatrixXi& data() { return data_; }
-    const Eigen::MatrixXi& data() const { return data_; }
+    Eigen::Matrix<uint32_t, Eigen::Dynamic, Eigen::Dynamic>& data() { return data_; }
+    const Eigen::Matrix<uint32_t, Eigen::Dynamic, Eigen::Dynamic>& data() const { return data_; }
     
     // Basic operations
     int rows() const { return data_.rows(); }
@@ -184,76 +188,98 @@ public:
     int size() const { return data_.size(); }
     
     // Static factory methods
-    static EigenImage32 Zero(int rows, int cols) { return EigenImage32(Eigen::MatrixXi::Zero(rows, cols)); }
-    static EigenImage32 Ones(int rows, int cols) { return EigenImage32(Eigen::MatrixXi::Ones(rows, cols)); }
-    static EigenImage32 Constant(int rows, int cols, int value) { return EigenImage32(Eigen::MatrixXi::Constant(rows, cols, value)); }
+    static EigenImageU32 Zero(int rows, int cols) { 
+        return EigenImageU32(Eigen::Matrix<uint32_t, Eigen::Dynamic, Eigen::Dynamic>::Zero(rows, cols)); 
+    }
+    static EigenImageU32 Ones(int rows, int cols) { 
+        return EigenImageU32(Eigen::Matrix<uint32_t, Eigen::Dynamic, Eigen::Dynamic>::Ones(rows, cols)); 
+    }
+    static EigenImageU32 Constant(int rows, int cols, uint32_t value) { 
+        return EigenImageU32(Eigen::Matrix<uint32_t, Eigen::Dynamic, Eigen::Dynamic>::Constant(rows, cols, value)); 
+    }
     
     // Element-wise operations
-    EigenImage32 operator*(int scalar) const { return EigenImage32(data_ * scalar); }
-    EigenImage32 operator+(const EigenImage32& other) const { return EigenImage32(data_ + other.data_); }
-    EigenImage32 operator-(const EigenImage32& other) const { return EigenImage32(data_ - other.data_); }
-    EigenImage32 operator+(int scalar) const { return EigenImage32(data_.array() + scalar); }
-    EigenImage32 operator-(int scalar) const { return EigenImage32(data_.array() - scalar); }
-    EigenImage32 operator/(int scalar) const { return EigenImage32(data_ / scalar); }
+    EigenImageU32 operator*(uint32_t scalar) const { return EigenImageU32(data_ * scalar); }
+    EigenImageU32 operator+(const EigenImageU32& other) const { return EigenImageU32(data_ + other.data_); }
+    EigenImageU32 operator-(const EigenImageU32& other) const { 
+        // Handle underflow by clamping to 0 using element-wise max
+        // Use array operations to avoid Eigen's binary operator issues
+        Eigen::Matrix<uint32_t, Eigen::Dynamic, Eigen::Dynamic> result = data_.array().max(other.data_.array()) - other.data_.array();
+        return EigenImageU32(result);
+    }
+    EigenImageU32 operator+(uint32_t scalar) const { return EigenImageU32(data_.array() + scalar); }
+    EigenImageU32 operator-(uint32_t scalar) const { 
+        // Handle underflow by clamping to 0
+        return EigenImageU32(data_.array().max(scalar) - scalar);
+    }
+    EigenImageU32 operator/(uint32_t scalar) const { return EigenImageU32(data_ / scalar); }
     
     // Element-wise product
-    EigenImage32 cwiseProduct(const EigenImage32& other) const { return EigenImage32(data_.cwiseProduct(other.data_)); }
+    EigenImageU32 cwiseProduct(const EigenImageU32& other) const { return EigenImageU32(data_.cwiseProduct(other.data_)); }
     
     // Clipping operations
-    EigenImage32 clip(int min_val, int max_val) const;
-    EigenImage32 cwiseMax(int val) const { return EigenImage32(data_.cwiseMax(val)); }
-    EigenImage32 cwiseMin(int val) const { return EigenImage32(data_.cwiseMin(val)); }
+    EigenImageU32 clip(uint32_t min_val, uint32_t max_val) const;
+    EigenImageU32 cwiseMax(uint32_t val) const { return EigenImageU32(data_.cwiseMax(val)); }
+    EigenImageU32 cwiseMin(uint32_t val) const { return EigenImageU32(data_.cwiseMin(val)); }
     
     // Block operations
-    EigenImage32 block(int startRow, int startCol, int numRows, int numCols) const {
-        return EigenImage32(data_.block(startRow, startCol, numRows, numCols));
+    EigenImageU32 block(int startRow, int startCol, int numRows, int numCols) const {
+        return EigenImageU32(data_.block(startRow, startCol, numRows, numCols));
     }
     
     // Statistics
-    int min() const { return data_.minCoeff(); }
-    int max() const { return data_.maxCoeff(); }
-    float mean() const { return data_.cast<float>().mean(); }
+    uint32_t min() const { return data_.minCoeff(); }
+    uint32_t max() const { return data_.maxCoeff(); }
+    float mean() const { 
+        // Use double precision to avoid overflow in large matrices
+        double sum = data_.cast<double>().sum();
+        return static_cast<float>(sum / data_.size());
+    }
     
     // Assignment operators
-    EigenImage32& operator=(const EigenImage32& other) {
+    EigenImageU32& operator=(const EigenImageU32& other) {
         data_ = other.data_;
         return *this;
     }
     
-    EigenImage32& operator=(int scalar) {
+    EigenImageU32& operator=(uint32_t scalar) {
         data_.setConstant(scalar);
         return *this;
     }
     
-    EigenImage32& operator+=(const EigenImage32& other) {
+    EigenImageU32& operator+=(const EigenImageU32& other) {
         data_ += other.data_;
         return *this;
     }
     
-    EigenImage32& operator-=(const EigenImage32& other) {
-        data_ -= other.data_;
+    EigenImageU32& operator-=(const EigenImageU32& other) {
+        // Handle underflow by clamping to 0
+        data_ = data_.array().max(other.data_.array()) - other.data_.array();
         return *this;
     }
     
-    EigenImage32& operator*=(int scalar) {
+    EigenImageU32& operator*=(uint32_t scalar) {
         data_ *= scalar;
         return *this;
     }
     
-    EigenImage32& operator/=(int scalar) {
+    EigenImageU32& operator/=(uint32_t scalar) {
         data_ /= scalar;
         return *this;
     }
     
     // Element access
-    int& operator()(int i, int j) { return data_(i, j); }
-    const int& operator()(int i, int j) const { return data_(i, j); }
+    uint32_t& operator()(int i, int j) { return data_(i, j); }
+    const uint32_t& operator()(int i, int j) const { return data_(i, j); }
+    
+    // Clone method
+    EigenImageU32 clone() const { return EigenImageU32(data_); }
     
     // Bayer pattern operations
-    EigenImage32 extractBayerChannel(const std::string& bayer_pattern, char channel) const;
+    EigenImageU32 extractBayerChannel(const std::string& bayer_pattern, char channel) const;
     
 private:
-    Eigen::MatrixXi data_;
+    Eigen::Matrix<uint32_t, Eigen::Dynamic, Eigen::Dynamic> data_;
 };
 
 // Utility functions

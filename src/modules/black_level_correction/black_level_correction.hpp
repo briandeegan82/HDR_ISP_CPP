@@ -15,8 +15,8 @@ private:
     cv::Mat apply_blc_parameters_opencv();
     cv::Mat apply_blc_parameters_opencv_optimized();
     cv::Mat apply_blc_parameters_opencv_float();
-    hdr_isp::EigenImage32 apply_blc_parameters_eigen(const hdr_isp::EigenImage32& img);
-    void apply_blc_bayer_eigen(hdr_isp::EigenImage32& img, int r_offset, int gr_offset, int gb_offset, int b_offset, int r_sat, int gr_sat, int gb_sat, int b_sat);
+    hdr_isp::EigenImageU32 apply_blc_parameters_eigen(const hdr_isp::EigenImageU32& img);
+    void apply_blc_bayer_eigen(hdr_isp::EigenImageU32& img, int r_offset, int gr_offset, int gb_offset, int b_offset, int r_sat, int gr_sat, int gb_sat, int b_sat);
     cv::Mat raw_;
     YAML::Node sensor_info_;
     YAML::Node parm_blc_;

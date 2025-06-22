@@ -17,8 +17,8 @@ PiecewiseCurve::PiecewiseCurve(cv::Mat& img, const YAML::Node& platform, const Y
     , companded_pin_(parm_cmpd["companded_pin"].as<std::vector<int>>())
     , companded_pout_(parm_cmpd["companded_pout"].as<std::vector<int>>())
     , is_save_(parm_cmpd["is_save"].as<bool>())
-    , use_eigen_(true) // Use Eigen by default
     , is_debug_(parm_cmpd["is_debug"].as<bool>())
+    , use_eigen_(true) // Use Eigen by default
 {
 }
 
@@ -72,7 +72,7 @@ cv::Mat PiecewiseCurve::execute() {
         auto start = std::chrono::high_resolution_clock::now();
         
         if (use_eigen_) {
-            hdr_isp::EigenImage32 result = execute_eigen();
+            hdr_isp::EigenImageU32 result = execute_eigen();
             img_ = result.toOpenCV(img_.type());
         } else {
             img_ = execute_opencv();
@@ -120,22 +120,22 @@ cv::Mat PiecewiseCurve::execute_opencv() {
     return img_;
 }
 
-hdr_isp::EigenImage32 PiecewiseCurve::execute_eigen() {
+hdr_isp::EigenImageU32 PiecewiseCurve::execute_eigen() {
     std::vector<double> lut = generate_decompanding_lut(
         companded_pin_,
         companded_pout_,
         companded_pin_.back()
     );
-    hdr_isp::EigenImage32 eigen_img = hdr_isp::EigenImage32::fromOpenCV(img_);
+    hdr_isp::EigenImageU32 eigen_img = hdr_isp::EigenImageU32::fromOpenCV(img_);
     int rows = eigen_img.rows();
     int cols = eigen_img.cols();
     
     // Apply LUT to each pixel using Eigen
     for (int i = 0; i < rows; ++i) {
         for (int j = 0; j < cols; ++j) {
-            int pixel_value = eigen_img.data()(i, j);
-            if (pixel_value >= 0 && pixel_value < static_cast<int>(lut.size())) {
-                eigen_img.data()(i, j) = static_cast<int>(lut[pixel_value]);
+            uint32_t pixel_value = eigen_img.data()(i, j);
+            if (pixel_value < lut.size()) {
+                eigen_img.data()(i, j) = static_cast<uint32_t>(lut[pixel_value]);
             } else {
                 eigen_img.data()(i, j) = 0;
             }
@@ -143,9 +143,18 @@ hdr_isp::EigenImage32 PiecewiseCurve::execute_eigen() {
     }
     
     // Subtract pedestal and clip negative values
-    int pedestal = static_cast<int>(parm_cmpd_["pedestal"].as<double>());
+    uint32_t pedestal = static_cast<uint32_t>(parm_cmpd_["pedestal"].as<double>());
     eigen_img = eigen_img - pedestal;
-    eigen_img = eigen_img.clip(0, (1 << bit_depth_) - 1);
+    
+    // For early modules, clamp to 2^32 when bit depth is 32, otherwise use the configured bit depth
+    uint32_t max_val;
+    if (bit_depth_ == 32) {
+        max_val = 4294967295U; // 2^32 - 1
+    } else {
+        max_val = (1U << bit_depth_) - 1;
+    }
+    
+    eigen_img = eigen_img.clip(0, max_val);
     
     return eigen_img;
 } 

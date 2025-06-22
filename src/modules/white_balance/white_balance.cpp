@@ -26,7 +26,7 @@ cv::Mat WhiteBalance::execute()
         std::cout << "White balancing = True" << std::endl;
         auto start = std::chrono::high_resolution_clock::now();
         if (use_eigen_) {
-            hdr_isp::EigenImage32 result = apply_wb_parameters_eigen();
+            hdr_isp::EigenImageU32 result = apply_wb_parameters_eigen();
             img_ = result.toOpenCV(img_.type());
         } else {
             img_ = apply_wb_parameters_opencv();
@@ -121,7 +121,7 @@ cv::Mat WhiteBalance::apply_wb_parameters_opencv()
     return raw_whitebal;
 }
 
-hdr_isp::EigenImage32 WhiteBalance::apply_wb_parameters_eigen()
+hdr_isp::EigenImageU32 WhiteBalance::apply_wb_parameters_eigen()
 {
     float red_gain = parm_wbc_["r_gain"].as<float>();
     float blue_gain = parm_wbc_["b_gain"].as<float>();
@@ -134,7 +134,7 @@ hdr_isp::EigenImage32 WhiteBalance::apply_wb_parameters_eigen()
     int red_gain_int = static_cast<int>(red_gain * 1000);
     int blue_gain_int = static_cast<int>(blue_gain * 1000);
     
-    hdr_isp::EigenImage32 eigen_img = hdr_isp::EigenImage32::fromOpenCV(img_);
+    hdr_isp::EigenImageU32 eigen_img = hdr_isp::EigenImageU32::fromOpenCV(img_);
     int rows = eigen_img.rows();
     int cols = eigen_img.cols();
     

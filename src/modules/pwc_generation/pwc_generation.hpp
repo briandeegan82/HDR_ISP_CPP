@@ -21,7 +21,7 @@ private:
     void save();
 
     cv::Mat execute_opencv();
-    hdr_isp::EigenImage32 execute_eigen();
+    hdr_isp::EigenImageU32 execute_eigen();
 
     cv::Mat& img_;
     const YAML::Node& platform_;

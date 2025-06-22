@@ -14,7 +14,7 @@ public:
 
 private:
     void update_sensor_info(YAML::Node& dictionary);
-    hdr_isp::EigenImage32 crop_eigen(const hdr_isp::EigenImage32& img, int rows_to_crop, int cols_to_crop);
+    hdr_isp::EigenImageU32 crop_eigen(const hdr_isp::EigenImageU32& img, int rows_to_crop, int cols_to_crop);
     cv::Mat crop_opencv(const cv::Mat& img, int rows_to_crop, int cols_to_crop);
     cv::Mat apply_cropping();
     void save(const std::string& filename_tag);

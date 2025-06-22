@@ -13,7 +13,7 @@ public:
 
 private:
     cv::Mat apply_oecf_opencv();
-    hdr_isp::EigenImage32 apply_oecf_eigen();
+    hdr_isp::EigenImageU32 apply_oecf_eigen();
     void save();
 
     cv::Mat& img_;

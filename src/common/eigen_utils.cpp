@@ -279,60 +279,121 @@ cv::Mat eigen_to_opencv(const EigenImage& eigen_img) {
     return eigen_img.toOpenCV();
 }
 
-// EigenImage32 implementation
-EigenImage32 EigenImage32::fromOpenCV(const cv::Mat& mat) {
+// EigenImageU32 implementation
+EigenImageU32 EigenImageU32::fromOpenCV(const cv::Mat& mat) {
     if (mat.channels() != 1) {
-        throw std::runtime_error("EigenImage32::fromOpenCV: Input must be single-channel");
+        throw std::runtime_error("EigenImageU32::fromOpenCV: Input must be single-channel");
     }
     
-    cv::Mat int_mat;
-    mat.convertTo(int_mat, CV_32S);
+    Eigen::Matrix<uint32_t, Eigen::Dynamic, Eigen::Dynamic> eigen_mat(mat.rows, mat.cols);
     
-    Eigen::MatrixXi eigen_mat(int_mat.rows, int_mat.cols);
-    for (int i = 0; i < int_mat.rows; ++i) {
-        for (int j = 0; j < int_mat.cols; ++j) {
-            eigen_mat(i, j) = int_mat.at<int32_t>(i, j);
-        }
-    }
-    
-    return EigenImage32(eigen_mat);
-}
-
-cv::Mat EigenImage32::toOpenCV(int opencv_type) const {
-    cv::Mat mat(data_.rows(), data_.cols(), opencv_type);
-    
-    if (opencv_type == CV_32S) {
-        for (int i = 0; i < data_.rows(); ++i) {
-            for (int j = 0; j < data_.cols(); ++j) {
-                mat.at<int32_t>(i, j) = data_(i, j);
+    // Handle different input types properly
+    if (mat.type() == CV_16UC1) {
+        // Handle 16-bit unsigned input correctly
+        for (int i = 0; i < mat.rows; ++i) {
+            for (int j = 0; j < mat.cols; ++j) {
+                eigen_mat(i, j) = static_cast<uint32_t>(mat.at<uint16_t>(i, j));
             }
         }
-    } else if (opencv_type == CV_16U) {
-        for (int i = 0; i < data_.rows(); ++i) {
-            for (int j = 0; j < data_.cols(); ++j) {
-                mat.at<uint16_t>(i, j) = static_cast<uint16_t>(std::max(0, std::min(65535, data_(i, j))));
+    } else if (mat.type() == CV_8UC1) {
+        // Handle 8-bit unsigned input
+        for (int i = 0; i < mat.rows; ++i) {
+            for (int j = 0; j < mat.cols; ++j) {
+                eigen_mat(i, j) = static_cast<uint32_t>(mat.at<uint8_t>(i, j));
             }
         }
-    } else if (opencv_type == CV_8U) {
-        for (int i = 0; i < data_.rows(); ++i) {
-            for (int j = 0; j < data_.cols(); ++j) {
-                mat.at<uchar>(i, j) = static_cast<uchar>(std::max(0, std::min(255, data_(i, j))));
+    } else if (mat.type() == CV_32SC1) {
+        // Handle 32-bit signed input - clamp negative values to 0
+        for (int i = 0; i < mat.rows; ++i) {
+            for (int j = 0; j < mat.cols; ++j) {
+                int32_t val = mat.at<int32_t>(i, j);
+                eigen_mat(i, j) = static_cast<uint32_t>(std::max(0, val));
+            }
+        }
+    } else if (mat.type() == CV_32FC1) {
+        // Handle 32-bit float input - clamp to valid range
+        for (int i = 0; i < mat.rows; ++i) {
+            for (int j = 0; j < mat.cols; ++j) {
+                float val = mat.at<float>(i, j);
+                eigen_mat(i, j) = static_cast<uint32_t>(std::max(0.0f, std::min(4294967295.0f, val)));
             }
         }
     } else {
-        throw std::runtime_error("EigenImage32::toOpenCV: Unsupported OpenCV type");
+        // Fallback: convert to 32-bit unsigned
+        cv::Mat uint_mat;
+        mat.convertTo(uint_mat, CV_32S);
+        for (int i = 0; i < uint_mat.rows; ++i) {
+            for (int j = 0; j < uint_mat.cols; ++j) {
+                int32_t val = uint_mat.at<int32_t>(i, j);
+                eigen_mat(i, j) = static_cast<uint32_t>(std::max(0, val));
+            }
+        }
+    }
+    
+    return EigenImageU32(eigen_mat);
+}
+
+cv::Mat EigenImageU32::toOpenCV(int opencv_type) const {
+    cv::Mat mat(data_.rows(), data_.cols(), opencv_type);
+    
+    if (opencv_type == CV_32S) {
+        // Convert to signed 32-bit - check for overflow
+        uint32_t max_signed = 2147483647; // 2^31 - 1
+        for (int i = 0; i < data_.rows(); ++i) {
+            for (int j = 0; j < data_.cols(); ++j) {
+                uint32_t val = data_(i, j);
+                if (val > max_signed) {
+                    std::cerr << "Warning: Value " << val << " exceeds signed 32-bit range, clamping to " << max_signed << std::endl;
+                    val = max_signed;
+                }
+                mat.at<int32_t>(i, j) = static_cast<int32_t>(val);
+            }
+        }
+    } else if (opencv_type == CV_16U) {
+        // Convert to 16-bit unsigned - check for overflow
+        for (int i = 0; i < data_.rows(); ++i) {
+            for (int j = 0; j < data_.cols(); ++j) {
+                uint32_t val = data_(i, j);
+                if (val > 65535) {
+                    std::cerr << "Warning: Value " << val << " exceeds 16-bit range, clamping to 65535" << std::endl;
+                    val = 65535;
+                }
+                mat.at<uint16_t>(i, j) = static_cast<uint16_t>(val);
+            }
+        }
+    } else if (opencv_type == CV_8U) {
+        // Convert to 8-bit unsigned - check for overflow
+        for (int i = 0; i < data_.rows(); ++i) {
+            for (int j = 0; j < data_.cols(); ++j) {
+                uint32_t val = data_(i, j);
+                if (val > 255) {
+                    std::cerr << "Warning: Value " << val << " exceeds 8-bit range, clamping to 255" << std::endl;
+                    val = 255;
+                }
+                mat.at<uchar>(i, j) = static_cast<uchar>(val);
+            }
+        }
+    } else if (opencv_type == CV_32F) {
+        // Convert to 32-bit float
+        for (int i = 0; i < data_.rows(); ++i) {
+            for (int j = 0; j < data_.cols(); ++j) {
+                mat.at<float>(i, j) = static_cast<float>(data_(i, j));
+            }
+        }
+    } else {
+        throw std::runtime_error("EigenImageU32::toOpenCV: Unsupported OpenCV type");
     }
     
     return mat;
 }
 
-EigenImage32 EigenImage32::clip(int min_val, int max_val) const {
-    Eigen::MatrixXi clipped = data_.cwiseMax(min_val).cwiseMin(max_val);
-    return EigenImage32(clipped);
+EigenImageU32 EigenImageU32::clip(uint32_t min_val, uint32_t max_val) const {
+    Eigen::Matrix<uint32_t, Eigen::Dynamic, Eigen::Dynamic> clipped = data_.cwiseMax(min_val).cwiseMin(max_val);
+    return EigenImageU32(clipped);
 }
 
-EigenImage32 EigenImage32::extractBayerChannel(const std::string& bayer_pattern, char channel) const {
-    EigenImage32 result(rows(), cols());
+EigenImageU32 EigenImageU32::extractBayerChannel(const std::string& bayer_pattern, char channel) const {
+    EigenImageU32 result(rows(), cols());
     result.data().setZero();
     
     if (bayer_pattern == "rggb") {

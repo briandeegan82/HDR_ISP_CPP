@@ -18,7 +18,7 @@ black_level_correction:
   gr_offset: 200
   gb_offset: 200
   b_offset: 200
-  is_linear: true
+  is_linear: false
   r_sat: 4095
   gr_sat: 4095
   gb_sat: 4095

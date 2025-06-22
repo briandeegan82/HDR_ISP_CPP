@@ -14,7 +14,7 @@ public:
 
 private:
     cv::Mat apply_lsc_opencv();
-    hdr_isp::EigenImage32 apply_lsc_eigen();
+    hdr_isp::EigenImageU32 apply_lsc_eigen();
 
     cv::Mat img_;
     YAML::Node platform_;

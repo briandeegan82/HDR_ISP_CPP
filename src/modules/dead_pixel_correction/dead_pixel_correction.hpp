@@ -14,8 +14,8 @@ public:
 
 private:
     cv::Mat correct_dead_pixels_opencv();
-    hdr_isp::EigenImage32 correct_dead_pixels_eigen(const hdr_isp::EigenImage32& img);
-    int calculate_median_eigen(const hdr_isp::EigenImage32& neighborhood, const hdr_isp::EigenImage32& dead_mask);
+    hdr_isp::EigenImageU32 correct_dead_pixels_eigen(const hdr_isp::EigenImageU32& img);
+    uint32_t calculate_median_eigen(const hdr_isp::EigenImageU32& neighborhood, const hdr_isp::EigenImageU32& dead_mask);
     void save(const std::string& filename_tag);
 
     cv::Mat img_;

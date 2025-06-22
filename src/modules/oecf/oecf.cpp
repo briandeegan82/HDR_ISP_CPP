@@ -22,7 +22,14 @@ cv::Mat OECF::apply_oecf_opencv() {
     cv::Mat raw = img_.clone();
     std::string bayer = sensor_info_["bayer_pattern"].as<std::string>();
     int bpp = sensor_info_["bit_depth"].as<int>();
-    int max_value = (1 << bpp) - 1;
+    
+    // For early modules, clamp to 2^32 when bit depth is 32, otherwise use the configured bit depth
+    int max_value;
+    if (bpp == 32) {
+        max_value = 4294967295; // 2^32 - 1
+    } else {
+        max_value = (1 << bpp) - 1;
+    }
 
     // Get LUTs from parameters
     std::vector<uint16_t> r_lut = parm_oecf_["r_lut"].as<std::vector<uint16_t>>();
@@ -73,15 +80,22 @@ cv::Mat OECF::apply_oecf_opencv() {
         }
     }
 
-    // Clip values to valid range
+    // Clip values to valid range (0 to 2^32 for 32-bit, otherwise use configured bit depth)
     cv::threshold(raw_oecf, raw_oecf, max_value, max_value, cv::THRESH_TRUNC);
     return raw_oecf;
 }
 
-hdr_isp::EigenImage32 OECF::apply_oecf_eigen() {
+hdr_isp::EigenImageU32 OECF::apply_oecf_eigen() {
     std::string bayer = sensor_info_["bayer_pattern"].as<std::string>();
     int bpp = sensor_info_["bit_depth"].as<int>();
-    int max_value = (1 << bpp) - 1;
+    
+    // For early modules, clamp to 2^32 when bit depth is 32, otherwise use the configured bit depth
+    int max_value;
+    if (bpp == 32) {
+        max_value = 4294967295; // 2^32 - 1
+    } else {
+        max_value = (1 << bpp) - 1;
+    }
 
     // Get LUTs from parameters
     std::vector<uint16_t> r_lut = parm_oecf_["r_lut"].as<std::vector<uint16_t>>();
@@ -89,7 +103,7 @@ hdr_isp::EigenImage32 OECF::apply_oecf_eigen() {
     std::vector<uint16_t> gb_lut = parm_oecf_["r_lut"].as<std::vector<uint16_t>>();
     std::vector<uint16_t> bl_lut = parm_oecf_["r_lut"].as<std::vector<uint16_t>>();
 
-    hdr_isp::EigenImage32 eigen_img = hdr_isp::EigenImage32::fromOpenCV(img_);
+    hdr_isp::EigenImageU32 eigen_img = hdr_isp::EigenImageU32::fromOpenCV(img_);
     int rows = eigen_img.rows();
     int cols = eigen_img.cols();
 
@@ -166,7 +180,7 @@ hdr_isp::EigenImage32 OECF::apply_oecf_eigen() {
         }
     }
 
-    // Clip values to valid range using Eigen
+    // Clip values to valid range using Eigen (0 to 2^32 for 32-bit, otherwise use configured bit depth)
     eigen_img = eigen_img.clip(0, max_value);
     return eigen_img;
 }
@@ -186,7 +200,7 @@ cv::Mat OECF::execute() {
         auto start = std::chrono::high_resolution_clock::now();
         
         if (use_eigen_) {
-            hdr_isp::EigenImage32 result = apply_oecf_eigen();
+            hdr_isp::EigenImageU32 result = apply_oecf_eigen();
             img_ = result.toOpenCV(img_.type());
         } else {
             img_ = apply_oecf_opencv();

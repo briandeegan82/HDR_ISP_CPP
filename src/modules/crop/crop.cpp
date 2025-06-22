@@ -33,25 +33,19 @@ void Crop::update_sensor_info(YAML::Node& dictionary) {
     }
 }
 
-hdr_isp::EigenImage32 Crop::crop_eigen(const hdr_isp::EigenImage32& img, int rows_to_crop, int cols_to_crop) {
-    if (rows_to_crop || cols_to_crop) {
-        if (rows_to_crop % 4 == 0 && cols_to_crop % 4 == 0) {
-            int start_row = rows_to_crop / 2;
-            int end_row = img.rows() - rows_to_crop / 2;
-            int start_col = cols_to_crop / 2;
-            int end_col = img.cols() - cols_to_crop / 2;
-            
-            // Use Eigen's block operation for cropping
-            Eigen::MatrixXi cropped_data = img.data().block(start_row, start_col, 
-                                                           end_row - start_row, 
-                                                           end_col - start_col);
-            return hdr_isp::EigenImage32(cropped_data);
-        } else {
-            std::cout << "   - Input/Output heights are not compatible."
-                      << " Bayer pattern will be disturbed if cropped!" << std::endl;
-        }
+hdr_isp::EigenImageU32 Crop::crop_eigen(const hdr_isp::EigenImageU32& img, int rows_to_crop, int cols_to_crop) {
+    int new_rows = img.rows() - rows_to_crop;
+    int new_cols = img.cols() - cols_to_crop;
+    
+    if (new_rows <= 0 || new_cols <= 0) {
+        throw std::runtime_error("Crop dimensions would result in zero or negative size");
     }
-    return img;
+    
+    // Extract the cropped region
+    Eigen::Matrix<uint32_t, Eigen::Dynamic, Eigen::Dynamic> cropped_data = 
+        img.data().block(rows_to_crop/2, cols_to_crop/2, new_rows, new_cols);
+    
+    return hdr_isp::EigenImageU32(cropped_data);
 }
 
 cv::Mat Crop::crop_opencv(const cv::Mat& img, int rows_to_crop, int cols_to_crop) {
@@ -92,10 +86,10 @@ cv::Mat Crop::apply_cropping() {
         }
         
         // Convert to Eigen format
-        hdr_isp::EigenImage32 eigen_img = hdr_isp::EigenImage32::fromOpenCV(img_);
+        hdr_isp::EigenImageU32 eigen_img = hdr_isp::EigenImageU32::fromOpenCV(img_);
         
         // Apply cropping using Eigen
-        hdr_isp::EigenImage32 cropped_eigen = crop_eigen(eigen_img, crop_rows, crop_cols);
+        hdr_isp::EigenImageU32 cropped_eigen = crop_eigen(eigen_img, crop_rows, crop_cols);
         
         // Convert back to OpenCV format
         cropped_img = cropped_eigen.toOpenCV(img_.type());

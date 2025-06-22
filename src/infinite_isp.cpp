@@ -107,7 +107,8 @@ void InfiniteISP::load_raw() {
 
     if (memory_mapped_data_ != nullptr) {
         std::cout << "Using memory mapped data..." << std::endl;
-        raw_ = *memory_mapped_data_;
+        // Convert memory mapped OpenCV data to EigenImageU32
+        raw_ = hdr_isp::EigenImageU32::fromOpenCV(*memory_mapped_data_);
     }
     else if (path_object.extension() == ".raw") {
         std::cout << "Processing .raw file..." << std::endl;
@@ -130,38 +131,78 @@ void InfiniteISP::load_raw() {
             std::cout << "Expected file size: " << expected_size << " bytes" << std::endl;
             std::cout << "Sensor info - width: " << sensor_info_.width << ", height: " << sensor_info_.height << ", bit_depth: " << sensor_info_.bit_depth << std::endl;
             
-            // Determine appropriate OpenCV type based on bit depth
-            int cv_type;
+            // Create Eigen matrix directly
+            std::cout << "Creating Eigen matrix..." << std::endl;
+            raw_ = hdr_isp::EigenImageU32(sensor_info_.height, sensor_info_.width);
+            std::cout << "Matrix created successfully!" << std::endl;
+            
+            // Read raw data directly into Eigen matrix
+            std::cout << "Reading raw data..." << std::endl;
+            
+            // Determine appropriate data type based on bit depth
             if (sensor_info_.bit_depth <= 8) {
-                cv_type = CV_8UC1;
+                // Read as 8-bit and convert to uint32_t
+                std::vector<uint8_t> buffer(sensor_info_.width * sensor_info_.height);
+                file.read(reinterpret_cast<char*>(buffer.data()), expected_size);
+                
+                for (int i = 0; i < sensor_info_.height; ++i) {
+                    for (int j = 0; j < sensor_info_.width; ++j) {
+                        raw_.data()(i, j) = static_cast<uint32_t>(buffer[i * sensor_info_.width + j]);
+                    }
+                }
             } else if (sensor_info_.bit_depth <= 16) {
-                cv_type = CV_16UC1;
+                // Read as 16-bit and convert to uint32_t
+                std::vector<uint16_t> buffer(sensor_info_.width * sensor_info_.height);
+                file.read(reinterpret_cast<char*>(buffer.data()), expected_size);
+                
+                for (int i = 0; i < sensor_info_.height; ++i) {
+                    for (int j = 0; j < sensor_info_.width; ++j) {
+                        raw_.data()(i, j) = static_cast<uint32_t>(buffer[i * sensor_info_.width + j]);
+                    }
+                }
             } else if (sensor_info_.bit_depth <= 24) {
-                cv_type = CV_32SC1;  // Use 32-bit signed for HDR images (OpenCV doesn't have CV_32UC1)
+                // Read as 32-bit unsigned for HDR images
+                std::vector<uint32_t> buffer(sensor_info_.width * sensor_info_.height);
+                file.read(reinterpret_cast<char*>(buffer.data()), expected_size);
+                
+                for (int i = 0; i < sensor_info_.height; ++i) {
+                    for (int j = 0; j < sensor_info_.width; ++j) {
+                        raw_.data()(i, j) = buffer[i * sensor_info_.width + j];
+                    }
+                }
             } else {
                 throw std::runtime_error("Unsupported bit depth: " + std::to_string(sensor_info_.bit_depth));
             }
-            std::cout << "OpenCV type: " << cv_type << std::endl;
-            
-            // Create matrix to hold raw data
-            std::cout << "Creating OpenCV matrix..." << std::endl;
-            raw_ = cv::Mat(sensor_info_.height, sensor_info_.width, cv_type);
-            std::cout << "Matrix created successfully!" << std::endl;
-            
-            // Read raw data
-            std::cout << "Reading raw data..." << std::endl;
-            file.read(reinterpret_cast<char*>(raw_.data), expected_size);
             
             if (!file) {
                 throw std::runtime_error("Error reading raw file: " + raw_path);
             }
             std::cout << "Raw data read successfully!" << std::endl;
             
-            // For bit depths that don't align with byte boundaries, we need to handle bit shifting
+            // Check if data is packed or unpacked by comparing file sizes
+            // For bit depths that don't align with byte boundaries, we need to determine if data is packed
             if (sensor_info_.bit_depth > 8 && sensor_info_.bit_depth % 8 != 0) {
-                std::cout << "Handling non-byte-aligned bit depth..." << std::endl;
-                // Handle non-byte-aligned bit depths (e.g., 10-bit, 12-bit, 14-bit)
-                handle_non_byte_aligned_bit_depth();
+                // Calculate expected sizes for both packed and unpacked formats
+                size_t unpacked_size = sensor_info_.width * sensor_info_.height * ((sensor_info_.bit_depth + 7) / 8);
+                size_t packed_size = sensor_info_.width * sensor_info_.height * sensor_info_.bit_depth / 8;
+                
+                std::cout << "Bit depth " << sensor_info_.bit_depth << " doesn't align with byte boundaries" << std::endl;
+                std::cout << "Expected unpacked size: " << unpacked_size << " bytes" << std::endl;
+                std::cout << "Expected packed size: " << packed_size << " bytes" << std::endl;
+                std::cout << "Actual file size: " << file_size << " bytes" << std::endl;
+                
+                // Determine if data is packed or unpacked based on file size
+                if (file_size == unpacked_size) {
+                    std::cout << "Data is unpacked (stored as " << ((sensor_info_.bit_depth + 7) / 8) * 8 << "-bit per pixel)" << std::endl;
+                    // No need to handle unpacking - data is already in correct format
+                } else if (file_size == packed_size) {
+                    std::cout << "Data is packed (stored as " << sensor_info_.bit_depth << "-bit per pixel)" << std::endl;
+                    // Handle unpacking for packed data
+                    handle_non_byte_aligned_bit_depth();
+                } else {
+                    std::cout << "Warning: File size doesn't match expected packed or unpacked size" << std::endl;
+                    std::cout << "Assuming unpacked format and proceeding..." << std::endl;
+                }
             }
         }
     }
@@ -172,27 +213,29 @@ void InfiniteISP::load_raw() {
             throw std::runtime_error("Memory mapping for tiff files not implemented yet");
         }
         else {
-            raw_ = cv::imread(raw_path, cv::IMREAD_UNCHANGED);
-            if (raw_.channels() == 3) {
+            // Load TIFF using OpenCV first, then convert to Eigen
+            cv::Mat temp_img = cv::imread(raw_path, cv::IMREAD_UNCHANGED);
+            if (temp_img.channels() == 3) {
                 std::vector<cv::Mat> channels;
-                cv::split(raw_, channels);
-                raw_ = channels[0];
+                cv::split(temp_img, channels);
+                temp_img = channels[0];
             }
+            raw_ = hdr_isp::EigenImageU32::fromOpenCV(temp_img);
         }
     }
     else {
         std::cout << "Processing other format file..." << std::endl;
-        // For other formats, use OpenCV
-        raw_ = cv::imread(raw_path, cv::IMREAD_UNCHANGED);
+        // For other formats, use OpenCV first, then convert to Eigen
+        cv::Mat temp_img = cv::imread(raw_path, cv::IMREAD_UNCHANGED);
+        raw_ = hdr_isp::EigenImageU32::fromOpenCV(temp_img);
     }
 
     std::cout << "--------------------------------------------------" << std::endl;
     std::cout << "Loading RAW Image Done......" << std::endl;
     std::cout << "Filename: " << raw_file_ << std::endl;
-    std::cout << "Image size: " << raw_.cols << "x" << raw_.rows << std::endl;
-    std::cout << "Image type: " << raw_.type() << " (CV_8U=" << CV_8U << ", CV_16U=" << CV_16U << ", CV_32S=" << CV_32S << ", CV_32F=" << CV_32F << ")" << std::endl;
-    std::cout << "Image empty: " << (raw_.empty() ? "true" : "false") << std::endl;
-    std::cout << "Image channels: " << raw_.channels() << std::endl;
+    std::cout << "Image size: " << raw_.cols() << "x" << raw_.rows() << std::endl;
+    std::cout << "Image type: EigenImageU32 (uint32_t)" << std::endl;
+    std::cout << "Image empty: " << (raw_.size() == 0 ? "true" : "false") << std::endl;
     std::cout << "Bit depth: " << sensor_info_.bit_depth << " bits" << std::endl;
     std::cout << "--------------------------------------------------" << std::endl;
 }
@@ -203,40 +246,40 @@ void InfiniteISP::handle_non_byte_aligned_bit_depth() {
     
     if (sensor_info_.bit_depth == 10) {
         // Convert from packed 10-bit to 16-bit
-        cv::Mat temp = raw_.clone();
-        raw_ = cv::Mat(sensor_info_.height, sensor_info_.width, CV_16UC1);
+        hdr_isp::EigenImageU32 temp = raw_.clone();
+        raw_ = hdr_isp::EigenImageU32(sensor_info_.height, sensor_info_.width);
         
-        for (int i = 0; i < temp.rows; i++) {
-            for (int j = 0; j < temp.cols; j++) {
-                int32_t packed_value = temp.at<int32_t>(i, j);
-                uint16_t unpacked_value = (packed_value & 0x3FF); // Extract 10 bits
-                raw_.at<uint16_t>(i, j) = unpacked_value;
+        for (int i = 0; i < temp.rows(); i++) {
+            for (int j = 0; j < temp.cols(); j++) {
+                uint32_t packed_value = temp.data()(i, j);
+                uint32_t unpacked_value = (packed_value & 0x3FF); // Extract 10 bits
+                raw_.data()(i, j) = unpacked_value;
             }
         }
     }
     else if (sensor_info_.bit_depth == 12) {
         // Convert from packed 12-bit to 16-bit
-        cv::Mat temp = raw_.clone();
-        raw_ = cv::Mat(sensor_info_.height, sensor_info_.width, CV_16UC1);
+        hdr_isp::EigenImageU32 temp = raw_.clone();
+        raw_ = hdr_isp::EigenImageU32(sensor_info_.height, sensor_info_.width);
         
-        for (int i = 0; i < temp.rows; i++) {
-            for (int j = 0; j < temp.cols; j++) {
-                uint16_t packed_value = temp.at<uint16_t>(i, j);
-                uint16_t unpacked_value = packed_value & 0x0FFF; // Extract 12 bits
-                raw_.at<uint16_t>(i, j) = unpacked_value;
+        for (int i = 0; i < temp.rows(); i++) {
+            for (int j = 0; j < temp.cols(); j++) {
+                uint32_t packed_value = temp.data()(i, j);
+                uint32_t unpacked_value = packed_value & 0x0FFF; // Extract 12 bits
+                raw_.data()(i, j) = unpacked_value;
             }
         }
     }
     else if (sensor_info_.bit_depth == 14) {
         // Convert from packed 14-bit to 16-bit
-        cv::Mat temp = raw_.clone();
-        raw_ = cv::Mat(sensor_info_.height, sensor_info_.width, CV_16UC1);
+        hdr_isp::EigenImageU32 temp = raw_.clone();
+        raw_ = hdr_isp::EigenImageU32(sensor_info_.height, sensor_info_.width);
         
-        for (int i = 0; i < temp.rows; i++) {
-            for (int j = 0; j < temp.cols; j++) {
-                int32_t packed_value = temp.at<int32_t>(i, j);
-                uint16_t unpacked_value = (packed_value & 0x3FFF); // Extract 14 bits
-                raw_.at<uint16_t>(i, j) = unpacked_value;
+        for (int i = 0; i < temp.rows(); i++) {
+            for (int j = 0; j < temp.cols(); j++) {
+                uint32_t packed_value = temp.data()(i, j);
+                uint32_t unpacked_value = (packed_value & 0x3FFF); // Extract 14 bits
+                raw_.data()(i, j) = unpacked_value;
             }
         }
     }
@@ -244,7 +287,8 @@ void InfiniteISP::handle_non_byte_aligned_bit_depth() {
 }
 
 cv::Mat InfiniteISP::run_pipeline(bool visualize_output, bool save_intermediate) {
-    cv::Mat img = raw_.clone();
+    // Convert EigenImageU32 to cv::Mat for processing
+    cv::Mat img = raw_.toOpenCV(CV_32S);
 
     // Create output directory for intermediate images if needed
     fs::path intermediate_dir;
@@ -253,15 +297,50 @@ cv::Mat InfiniteISP::run_pipeline(bool visualize_output, bool save_intermediate)
         fs::create_directories(intermediate_dir);
     }
 
+    // Debug: Print initial image statistics
+    double min_val, max_val;
+    cv::minMaxLoc(img, &min_val, &max_val);
+    cv::Scalar mean_val = cv::mean(img);
+    std::cout << "=== INITIAL IMAGE STATS ===" << std::endl;
+    std::cout << "Type: " << img.type() << " (CV_8U=" << CV_8U << ", CV_16U=" << CV_16U << ", CV_32S=" << CV_32S << ", CV_32F=" << CV_32F << ")" << std::endl;
+    std::cout << "Min: " << min_val << ", Mean: " << mean_val[0] << ", Max: " << max_val << std::endl;
+    std::cout << "Size: " << img.cols << "x" << img.rows << ", Channels: " << img.channels() << std::endl;
+    std::cout << "==========================" << std::endl;
+
     // =====================================================================
     // 1. Cropping
     std::cout << "Cropping" << std::endl;
     if (parm_cro_["is_enable"].as<bool>()) {
         Crop crop(img, config_["platform"], config_["sensor_info"], parm_cro_);
         img = crop.execute();
+        
+        // Debug: Print image statistics after cropping
+        cv::minMaxLoc(img, &min_val, &max_val);
+        mean_val = cv::mean(img);
+        std::cout << "=== AFTER CROPPING ===" << std::endl;
+        std::cout << "Type: " << img.type() << std::endl;
+        std::cout << "Min: " << min_val << ", Mean: " << mean_val[0] << ", Max: " << max_val << std::endl;
+        std::cout << "Size: " << img.cols << "x" << img.rows << ", Channels: " << img.channels() << std::endl;
+        std::cout << "=====================" << std::endl;
+        
         if (save_intermediate) {
             fs::path output_path = intermediate_dir / "crop.png";
-            cv::imwrite(output_path.string(), img);
+            // Debug: Print image statistics before saving
+            double min_val, max_val;
+            cv::minMaxLoc(img, &min_val, &max_val);
+            cv::Scalar mean_val = cv::mean(img);
+            std::cout << "Crop - Mean: " << mean_val[0] << ", Min: " << min_val << ", Max: " << max_val << ", Type: " << img.type() << std::endl;
+            
+            // Convert to 8-bit for display
+            cv::Mat save_img;
+            if (img.type() == CV_32F) {
+                img.convertTo(save_img, CV_8U, 255.0);
+            } else if (img.type() == CV_16U) {
+                img.convertTo(save_img, CV_8U, 255.0 / 65535.0);
+            } else {
+                img.convertTo(save_img, CV_8U, 255.0 / ((1 << sensor_info_.bit_depth) - 1));
+            }
+            cv::imwrite(output_path.string(), save_img);
         }
     }
 
@@ -271,9 +350,34 @@ cv::Mat InfiniteISP::run_pipeline(bool visualize_output, bool save_intermediate)
     if (parm_dpc_["is_enable"].as<bool>()) {
         DeadPixelCorrection dpc(img, config_["platform"], config_["sensor_info"], parm_dpc_);
         img = dpc.execute();
+        
+        // Debug: Print image statistics after dead pixel correction
+        cv::minMaxLoc(img, &min_val, &max_val);
+        mean_val = cv::mean(img);
+        std::cout << "=== AFTER DEAD PIXEL CORRECTION ===" << std::endl;
+        std::cout << "Type: " << img.type() << std::endl;
+        std::cout << "Min: " << min_val << ", Mean: " << mean_val[0] << ", Max: " << max_val << std::endl;
+        std::cout << "Size: " << img.cols << "x" << img.rows << ", Channels: " << img.channels() << std::endl;
+        std::cout << "==================================" << std::endl;
+        
         if (save_intermediate) {
             fs::path output_path = intermediate_dir / "dead_pixel_correction.png";
-            cv::imwrite(output_path.string(), img);
+            // Debug: Print image statistics before saving
+            double min_val, max_val;
+            cv::minMaxLoc(img, &min_val, &max_val);
+            cv::Scalar mean_val = cv::mean(img);
+            std::cout << "DeadPixel - Mean: " << mean_val[0] << ", Min: " << min_val << ", Max: " << max_val << ", Type: " << img.type() << std::endl;
+            
+            // Convert to 8-bit for display
+            cv::Mat save_img;
+            if (img.type() == CV_32F) {
+                img.convertTo(save_img, CV_8U, 255.0);
+            } else if (img.type() == CV_16U) {
+                img.convertTo(save_img, CV_8U, 255.0 / 65535.0);
+            } else {
+                img.convertTo(save_img, CV_8U, 255.0 / ((1 << sensor_info_.bit_depth) - 1));
+            }
+            cv::imwrite(output_path.string(), save_img);
         }
     }
 
@@ -283,11 +387,33 @@ cv::Mat InfiniteISP::run_pipeline(bool visualize_output, bool save_intermediate)
     if (parm_blc_["is_enable"].as<bool>()) {
         BlackLevelCorrection blc(img, config_["sensor_info"], parm_blc_);
         img = blc.execute();
+        
+        // Debug: Print image statistics after black level correction
+        cv::minMaxLoc(img, &min_val, &max_val);
+        mean_val = cv::mean(img);
+        std::cout << "=== AFTER BLACK LEVEL CORRECTION ===" << std::endl;
+        std::cout << "Type: " << img.type() << std::endl;
+        std::cout << "Min: " << min_val << ", Mean: " << mean_val[0] << ", Max: " << max_val << std::endl;
+        std::cout << "Size: " << img.cols << "x" << img.rows << ", Channels: " << img.channels() << std::endl;
+        std::cout << "===================================" << std::endl;
+        
         if (save_intermediate) {
             fs::path output_path = intermediate_dir / "black_level_correction.png";
-            // Convert to 8-bit before saving
+            // Debug: Print image statistics before saving
+            double min_val, max_val;
+            cv::minMaxLoc(img, &min_val, &max_val);
+            cv::Scalar mean_val = cv::mean(img);
+            std::cout << "BLC - Mean: " << mean_val[0] << ", Min: " << min_val << ", Max: " << max_val << ", Type: " << img.type() << std::endl;
+            
+            // Convert to 8-bit for display
             cv::Mat save_img;
-            img.convertTo(save_img, CV_8U, 255.0 / ((1 << sensor_info_.bit_depth) - 1));
+            if (img.type() == CV_32F) {
+                img.convertTo(save_img, CV_8U, 255.0);
+            } else if (img.type() == CV_16U) {
+                img.convertTo(save_img, CV_8U, 255.0 / 65535.0);
+            } else {
+                img.convertTo(save_img, CV_8U, 255.0 / ((1 << sensor_info_.bit_depth) - 1));
+            }
             cv::imwrite(output_path.string(), save_img);
         }
     }
@@ -298,9 +424,34 @@ cv::Mat InfiniteISP::run_pipeline(bool visualize_output, bool save_intermediate)
     if (parm_cmpd_["is_enable"].as<bool>()) {
         PiecewiseCurve pwc(img, config_["platform"], config_["sensor_info"], parm_cmpd_);
         img = pwc.execute();
+        
+        // Debug: Print image statistics after decompanding
+        cv::minMaxLoc(img, &min_val, &max_val);
+        mean_val = cv::mean(img);
+        std::cout << "=== AFTER DECOMPANDING ===" << std::endl;
+        std::cout << "Type: " << img.type() << std::endl;
+        std::cout << "Min: " << min_val << ", Mean: " << mean_val[0] << ", Max: " << max_val << std::endl;
+        std::cout << "Size: " << img.cols << "x" << img.rows << ", Channels: " << img.channels() << std::endl;
+        std::cout << "=========================" << std::endl;
+        
         if (save_intermediate) {
             fs::path output_path = intermediate_dir / "piecewise_curve.png";
-            cv::imwrite(output_path.string(), img);
+            // Debug: Print image statistics before saving
+            double min_val, max_val;
+            cv::minMaxLoc(img, &min_val, &max_val);
+            cv::Scalar mean_val = cv::mean(img);
+            std::cout << "PWC - Mean: " << mean_val[0] << ", Min: " << min_val << ", Max: " << max_val << ", Type: " << img.type() << std::endl;
+            
+            // Convert to 8-bit for display
+            cv::Mat save_img;
+            if (img.type() == CV_32F) {
+                img.convertTo(save_img, CV_8U, 255.0);
+            } else if (img.type() == CV_16U) {
+                img.convertTo(save_img, CV_8U, 255.0 / 65535.0);
+            } else {
+                img.convertTo(save_img, CV_8U, 255.0 / ((1 << sensor_info_.bit_depth) - 1));
+            }
+            cv::imwrite(output_path.string(), save_img);
         }
     }
 
@@ -312,7 +463,22 @@ cv::Mat InfiniteISP::run_pipeline(bool visualize_output, bool save_intermediate)
         img = oecf.execute();
         if (save_intermediate) {
             fs::path output_path = intermediate_dir / "oecf.png";
-            cv::imwrite(output_path.string(), img);
+            // Debug: Print image statistics before saving
+            double min_val, max_val;
+            cv::minMaxLoc(img, &min_val, &max_val);
+            cv::Scalar mean_val = cv::mean(img);
+            std::cout << "OECF - Mean: " << mean_val[0] << ", Min: " << min_val << ", Max: " << max_val << ", Type: " << img.type() << std::endl;
+            
+            // Convert to 8-bit for display
+            cv::Mat save_img;
+            if (img.type() == CV_32F) {
+                img.convertTo(save_img, CV_8U, 255.0);
+            } else if (img.type() == CV_16U) {
+                img.convertTo(save_img, CV_8U, 255.0 / 65535.0);
+            } else {
+                img.convertTo(save_img, CV_8U, 255.0 / ((1 << sensor_info_.bit_depth) - 1));
+            }
+            cv::imwrite(output_path.string(), save_img);
         }
     }
 
@@ -327,7 +493,22 @@ cv::Mat InfiniteISP::run_pipeline(bool visualize_output, bool save_intermediate)
         dga_current_gain_ = gain;
         if (save_intermediate) {
             fs::path output_path = intermediate_dir / "digital_gain.png";
-            cv::imwrite(output_path.string(), img);
+            // Debug: Print image statistics before saving
+            double min_val, max_val;
+            cv::minMaxLoc(img, &min_val, &max_val);
+            cv::Scalar mean_val = cv::mean(img);
+            std::cout << "DigitalGain - Mean: " << mean_val[0] << ", Min: " << min_val << ", Max: " << max_val << ", Type: " << img.type() << std::endl;
+            
+            // Convert to 8-bit for display
+            cv::Mat save_img;
+            if (img.type() == CV_32F) {
+                img.convertTo(save_img, CV_8U, 255.0);
+            } else if (img.type() == CV_16U) {
+                img.convertTo(save_img, CV_8U, 255.0 / 65535.0);
+            } else {
+                img.convertTo(save_img, CV_8U, 255.0 / ((1 << sensor_info_.bit_depth) - 1));
+            }
+            cv::imwrite(output_path.string(), save_img);
         }
     }
     catch (const std::exception& e) {
@@ -344,7 +525,22 @@ cv::Mat InfiniteISP::run_pipeline(bool visualize_output, bool save_intermediate)
         img = lsc.execute();
         if (save_intermediate) {
             fs::path output_path = intermediate_dir / "lens_shading_correction.png";
-            cv::imwrite(output_path.string(), img);
+            // Debug: Print image statistics before saving
+            double min_val, max_val;
+            cv::minMaxLoc(img, &min_val, &max_val);
+            cv::Scalar mean_val = cv::mean(img);
+            std::cout << "LSC - Mean: " << mean_val[0] << ", Min: " << min_val << ", Max: " << max_val << ", Type: " << img.type() << std::endl;
+            
+            // Convert to 8-bit for display
+            cv::Mat save_img;
+            if (img.type() == CV_32F) {
+                img.convertTo(save_img, CV_8U, 255.0);
+            } else if (img.type() == CV_16U) {
+                img.convertTo(save_img, CV_8U, 255.0 / 65535.0);
+            } else {
+                img.convertTo(save_img, CV_8U, 255.0 / ((1 << sensor_info_.bit_depth) - 1));
+            }
+            cv::imwrite(output_path.string(), save_img);
         }
     }
 
@@ -356,9 +552,21 @@ cv::Mat InfiniteISP::run_pipeline(bool visualize_output, bool save_intermediate)
         img = bnr.execute();
         if (save_intermediate) {
             fs::path output_path = intermediate_dir / "bayer_noise_reduction.png";
-            // Convert to 8-bit before saving
+            // Debug: Print image statistics before saving
+            double min_val, max_val;
+            cv::minMaxLoc(img, &min_val, &max_val);
+            cv::Scalar mean_val = cv::mean(img);
+            std::cout << "BNR - Mean: " << mean_val[0] << ", Min: " << min_val << ", Max: " << max_val << ", Type: " << img.type() << std::endl;
+            
+            // Convert to 8-bit for display
             cv::Mat save_img;
-            img.convertTo(save_img, CV_8U, 255.0 / ((1 << sensor_info_.bit_depth) - 1));
+            if (img.type() == CV_32F) {
+                img.convertTo(save_img, CV_8U, 255.0);
+            } else if (img.type() == CV_16U) {
+                img.convertTo(save_img, CV_8U, 255.0 / 65535.0);
+            } else {
+                img.convertTo(save_img, CV_8U, 255.0 / ((1 << sensor_info_.bit_depth) - 1));
+            }
             cv::imwrite(output_path.string(), save_img);
         }
     }
@@ -374,8 +582,21 @@ cv::Mat InfiniteISP::run_pipeline(bool visualize_output, bool save_intermediate)
         
         if (save_intermediate) {
             fs::path output_path = intermediate_dir / "auto_white_balance.png";
+            // Debug: Print image statistics before saving
+            double min_val, max_val;
+            cv::minMaxLoc(img, &min_val, &max_val);
+            cv::Scalar mean_val = cv::mean(img);
+            std::cout << "AWB - Mean: " << mean_val[0] << ", Min: " << min_val << ", Max: " << max_val << ", Type: " << img.type() << std::endl;
+            
+            // Convert to 8-bit for display
             cv::Mat save_img;
-            img.convertTo(save_img, CV_8U, 255.0 / ((1 << sensor_info_.bit_depth) - 1));
+            if (img.type() == CV_32F) {
+                img.convertTo(save_img, CV_8U, 255.0);
+            } else if (img.type() == CV_16U) {
+                img.convertTo(save_img, CV_8U, 255.0 / 65535.0);
+            } else {
+                img.convertTo(save_img, CV_8U, 255.0 / ((1 << sensor_info_.bit_depth) - 1));
+            }
             cv::imwrite(output_path.string(), save_img);
         }
     }
@@ -389,7 +610,22 @@ cv::Mat InfiniteISP::run_pipeline(bool visualize_output, bool save_intermediate)
         img = wb.execute();
         if (save_intermediate) {
             fs::path output_path = intermediate_dir / "white_balance.png";
-            cv::imwrite(output_path.string(), img);
+            // Debug: Print image statistics before saving
+            double min_val, max_val;
+            cv::minMaxLoc(img, &min_val, &max_val);
+            cv::Scalar mean_val = cv::mean(img);
+            std::cout << "WB - Mean: " << mean_val[0] << ", Min: " << min_val << ", Max: " << max_val << ", Type: " << img.type() << std::endl;
+            
+            // Convert to 8-bit for display
+            cv::Mat save_img;
+            if (img.type() == CV_32F) {
+                img.convertTo(save_img, CV_8U, 255.0);
+            } else if (img.type() == CV_16U) {
+                img.convertTo(save_img, CV_8U, 255.0 / 65535.0);
+            } else {
+                img.convertTo(save_img, CV_8U, 255.0 / ((1 << sensor_info_.bit_depth) - 1));
+            }
+            cv::imwrite(output_path.string(), save_img);
         }
     }
 
@@ -401,7 +637,22 @@ cv::Mat InfiniteISP::run_pipeline(bool visualize_output, bool save_intermediate)
         img = hdr.execute();
         if (save_intermediate) {
             fs::path output_path = intermediate_dir / "hdr_tone_mapping.png";
-            cv::imwrite(output_path.string(), img);
+            // Debug: Print image statistics before saving
+            double min_val, max_val;
+            cv::minMaxLoc(img, &min_val, &max_val);
+            cv::Scalar mean_val = cv::mean(img);
+            std::cout << "HDR - Mean: " << mean_val[0] << ", Min: " << min_val << ", Max: " << max_val << ", Type: " << img.type() << std::endl;
+            
+            // Convert to 8-bit for display
+            cv::Mat save_img;
+            if (img.type() == CV_32F) {
+                img.convertTo(save_img, CV_8U, 255.0);
+            } else if (img.type() == CV_16U) {
+                img.convertTo(save_img, CV_8U, 255.0 / 65535.0);
+            } else {
+                img.convertTo(save_img, CV_8U, 255.0 / ((1 << sensor_info_.bit_depth) - 1));
+            }
+            cv::imwrite(output_path.string(), save_img);
         }
     }
 
@@ -417,8 +668,21 @@ cv::Mat InfiniteISP::run_pipeline(bool visualize_output, bool save_intermediate)
         
         if (save_intermediate) {
             fs::path output_path = intermediate_dir / "demosaic.png";
+            // Debug: Print image statistics before saving
+            double min_val, max_val;
+            cv::minMaxLoc(img, &min_val, &max_val);
+            cv::Scalar mean_val = cv::mean(img);
+            std::cout << "Demosaic - Mean: " << mean_val << ", Min: " << min_val << ", Max: " << max_val << ", Type: " << img.type() << ", Channels: " << img.channels() << std::endl;
+            
+            // Convert to 8-bit for display
             cv::Mat save_img;
-            img.convertTo(save_img, CV_8U, 255.0 / ((1 << sensor_info_.bit_depth) - 1));
+            if (img.type() == CV_32FC3) {
+                img.convertTo(save_img, CV_8UC3, 255.0);
+            } else if (img.type() == CV_16UC3) {
+                img.convertTo(save_img, CV_8UC3, 255.0 / 65535.0);
+            } else {
+                img.convertTo(save_img, CV_8UC3, 255.0 / ((1 << sensor_info_.bit_depth) - 1));
+            }
             cv::imwrite(output_path.string(), save_img);
         }
     }
@@ -431,8 +695,21 @@ cv::Mat InfiniteISP::run_pipeline(bool visualize_output, bool save_intermediate)
         img = ccm.execute();
         if (save_intermediate) {
             fs::path output_path = intermediate_dir / "color_correction_matrix.png";
+            // Debug: Print image statistics before saving
+            double min_val, max_val;
+            cv::minMaxLoc(img, &min_val, &max_val);
+            cv::Scalar mean_val = cv::mean(img);
+            std::cout << "CCM - Mean: " << mean_val << ", Min: " << min_val << ", Max: " << max_val << ", Type: " << img.type() << ", Channels: " << img.channels() << std::endl;
+            
+            // Convert to 8-bit for display
             cv::Mat save_img;
-            img.convertTo(save_img, CV_8U, 255.0 / ((1 << sensor_info_.bit_depth) - 1));
+            if (img.type() == CV_32FC3) {
+                img.convertTo(save_img, CV_8UC3, 255.0);
+            } else if (img.type() == CV_16UC3) {
+                img.convertTo(save_img, CV_8UC3, 255.0 / 65535.0);
+            } else {
+                img.convertTo(save_img, CV_8UC3, 255.0 / ((1 << sensor_info_.bit_depth) - 1));
+            }
             cv::imwrite(output_path.string(), save_img);
         }
     }
@@ -447,7 +724,22 @@ cv::Mat InfiniteISP::run_pipeline(bool visualize_output, bool save_intermediate)
         
         if (save_intermediate) {
             fs::path output_path = intermediate_dir / "gamma_correction.png";
-            cv::imwrite(output_path.string(), img);
+            // Debug: Print image statistics before saving
+            double min_val, max_val;
+            cv::minMaxLoc(img, &min_val, &max_val);
+            cv::Scalar mean_val = cv::mean(img);
+            std::cout << "Gamma - Mean: " << mean_val << ", Min: " << min_val << ", Max: " << max_val << ", Type: " << img.type() << ", Channels: " << img.channels() << std::endl;
+            
+            // Convert to 8-bit for display
+            cv::Mat save_img;
+            if (img.type() == CV_32FC3) {
+                img.convertTo(save_img, CV_8UC3, 255.0);
+            } else if (img.type() == CV_16UC3) {
+                img.convertTo(save_img, CV_8UC3, 255.0 / 65535.0);
+            } else {
+                img.convertTo(save_img, CV_8UC3, 255.0 / ((1 << sensor_info_.bit_depth) - 1));
+            }
+            cv::imwrite(output_path.string(), save_img);
         }
     }
 
@@ -461,8 +753,21 @@ cv::Mat InfiniteISP::run_pipeline(bool visualize_output, bool save_intermediate)
         
         if (save_intermediate) {
             fs::path output_path = intermediate_dir / "auto_exposure.png";
+            // Debug: Print image statistics before saving
+            double min_val, max_val;
+            cv::minMaxLoc(img, &min_val, &max_val);
+            cv::Scalar mean_val = cv::mean(img);
+            std::cout << "AE - Mean: " << mean_val << ", Min: " << min_val << ", Max: " << max_val << ", Type: " << img.type() << ", Channels: " << img.channels() << std::endl;
+            
+            // Convert to 8-bit for display
             cv::Mat save_img;
-            img.convertTo(save_img, CV_8U, 255.0 / ((1 << sensor_info_.bit_depth) - 1));
+            if (img.type() == CV_32FC3) {
+                img.convertTo(save_img, CV_8UC3, 255.0);
+            } else if (img.type() == CV_16UC3) {
+                img.convertTo(save_img, CV_8UC3, 255.0 / 65535.0);
+            } else {
+                img.convertTo(save_img, CV_8UC3, 255.0 / ((1 << sensor_info_.bit_depth) - 1));
+            }
             cv::imwrite(output_path.string(), save_img);
         }
     }
@@ -475,8 +780,21 @@ cv::Mat InfiniteISP::run_pipeline(bool visualize_output, bool save_intermediate)
         img = csc.execute();
         if (save_intermediate) {
             fs::path output_path = intermediate_dir / "color_space_conversion.png";
+            // Debug: Print image statistics before saving
+            double min_val, max_val;
+            cv::minMaxLoc(img, &min_val, &max_val);
+            cv::Scalar mean_val = cv::mean(img);
+            std::cout << "CSC - Mean: " << mean_val << ", Min: " << min_val << ", Max: " << max_val << ", Type: " << img.type() << ", Channels: " << img.channels() << std::endl;
+            
+            // Convert to 8-bit for display
             cv::Mat save_img;
-            img.convertTo(save_img, CV_8U, 255.0 / ((1 << sensor_info_.bit_depth) - 1));
+            if (img.type() == CV_32FC3) {
+                img.convertTo(save_img, CV_8UC3, 255.0);
+            } else if (img.type() == CV_16UC3) {
+                img.convertTo(save_img, CV_8UC3, 255.0 / 65535.0);
+            } else {
+                img.convertTo(save_img, CV_8UC3, 255.0 / ((1 << sensor_info_.bit_depth) - 1));
+            }
             cv::imwrite(output_path.string(), save_img);
         }
     }
@@ -489,7 +807,22 @@ cv::Mat InfiniteISP::run_pipeline(bool visualize_output, bool save_intermediate)
         img = ldci.execute();
         if (save_intermediate) {
             fs::path output_path = intermediate_dir / "ldci.png";
-            cv::imwrite(output_path.string(), img);
+            // Debug: Print image statistics before saving
+            double min_val, max_val;
+            cv::minMaxLoc(img, &min_val, &max_val);
+            cv::Scalar mean_val = cv::mean(img);
+            std::cout << "LDCI - Mean: " << mean_val << ", Min: " << min_val << ", Max: " << max_val << ", Type: " << img.type() << ", Channels: " << img.channels() << std::endl;
+            
+            // Convert to 8-bit for display
+            cv::Mat save_img;
+            if (img.type() == CV_32FC3) {
+                img.convertTo(save_img, CV_8UC3, 255.0);
+            } else if (img.type() == CV_16UC3) {
+                img.convertTo(save_img, CV_8UC3, 255.0 / 65535.0);
+            } else {
+                img.convertTo(save_img, CV_8UC3, 255.0 / ((1 << sensor_info_.bit_depth) - 1));
+            }
+            cv::imwrite(output_path.string(), save_img);
         }
     }
 
@@ -517,7 +850,22 @@ cv::Mat InfiniteISP::run_pipeline(bool visualize_output, bool save_intermediate)
         
         if (save_intermediate) {
             fs::path output_path = intermediate_dir / "sharpen.png";
-            cv::imwrite(output_path.string(), img);
+            // Debug: Print image statistics before saving
+            double min_val, max_val;
+            cv::minMaxLoc(img, &min_val, &max_val);
+            cv::Scalar mean_val = cv::mean(img);
+            std::cout << "Sharpen - Mean: " << mean_val << ", Min: " << min_val << ", Max: " << max_val << ", Type: " << img.type() << ", Channels: " << img.channels() << std::endl;
+            
+            // Convert to 8-bit for display
+            cv::Mat save_img;
+            if (img.type() == CV_32FC3) {
+                img.convertTo(save_img, CV_8UC3, 255.0);
+            } else if (img.type() == CV_16UC3) {
+                img.convertTo(save_img, CV_8UC3, 255.0 / 65535.0);
+            } else {
+                img.convertTo(save_img, CV_8UC3, 255.0 / ((1 << sensor_info_.bit_depth) - 1));
+            }
+            cv::imwrite(output_path.string(), save_img);
         }
     }
 
@@ -530,7 +878,22 @@ cv::Mat InfiniteISP::run_pipeline(bool visualize_output, bool save_intermediate)
         img = nr2d.execute();
         if (save_intermediate) {
             fs::path output_path = intermediate_dir / "2d_noise_reduction.png";
-            cv::imwrite(output_path.string(), img);
+            // Debug: Print image statistics before saving
+            double min_val, max_val;
+            cv::minMaxLoc(img, &min_val, &max_val);
+            cv::Scalar mean_val = cv::mean(img);
+            std::cout << "2DNR - Mean: " << mean_val << ", Min: " << min_val << ", Max: " << max_val << ", Type: " << img.type() << ", Channels: " << img.channels() << std::endl;
+            
+            // Convert to 8-bit for display
+            cv::Mat save_img;
+            if (img.type() == CV_32FC3) {
+                img.convertTo(save_img, CV_8UC3, 255.0);
+            } else if (img.type() == CV_16UC3) {
+                img.convertTo(save_img, CV_8UC3, 255.0 / 65535.0);
+            } else {
+                img.convertTo(save_img, CV_8UC3, 255.0 / ((1 << sensor_info_.bit_depth) - 1));
+            }
+            cv::imwrite(output_path.string(), save_img);
         }
     }
 
@@ -542,7 +905,22 @@ cv::Mat InfiniteISP::run_pipeline(bool visualize_output, bool save_intermediate)
         img = rgb_conv.execute();
         if (save_intermediate) {
             fs::path output_path = intermediate_dir / "rgb_conversion.png";
-            cv::imwrite(output_path.string(), img);
+            // Debug: Print image statistics before saving
+            double min_val, max_val;
+            cv::minMaxLoc(img, &min_val, &max_val);
+            cv::Scalar mean_val = cv::mean(img);
+            std::cout << "RGB - Mean: " << mean_val << ", Min: " << min_val << ", Max: " << max_val << ", Type: " << img.type() << ", Channels: " << img.channels() << std::endl;
+            
+            // Convert to 8-bit for display
+            cv::Mat save_img;
+            if (img.type() == CV_32FC3) {
+                img.convertTo(save_img, CV_8UC3, 255.0);
+            } else if (img.type() == CV_16UC3) {
+                img.convertTo(save_img, CV_8UC3, 255.0 / 65535.0);
+            } else {
+                img.convertTo(save_img, CV_8UC3, 255.0 / ((1 << sensor_info_.bit_depth) - 1));
+            }
+            cv::imwrite(output_path.string(), save_img);
         }
     }
 
@@ -569,7 +947,22 @@ cv::Mat InfiniteISP::run_pipeline(bool visualize_output, bool save_intermediate)
         
         if (save_intermediate) {
             fs::path output_path = intermediate_dir / "scale.png";
-            cv::imwrite(output_path.string(), img);
+            // Debug: Print image statistics before saving
+            double min_val, max_val;
+            cv::minMaxLoc(img, &min_val, &max_val);
+            cv::Scalar mean_val = cv::mean(img);
+            std::cout << "Scale - Mean: " << mean_val << ", Min: " << min_val << ", Max: " << max_val << ", Type: " << img.type() << ", Channels: " << img.channels() << std::endl;
+            
+            // Convert to 8-bit for display
+            cv::Mat save_img;
+            if (img.type() == CV_32FC3) {
+                img.convertTo(save_img, CV_8UC3, 255.0);
+            } else if (img.type() == CV_16UC3) {
+                img.convertTo(save_img, CV_8UC3, 255.0 / 65535.0);
+            } else {
+                img.convertTo(save_img, CV_8UC3, 255.0 / ((1 << sensor_info_.bit_depth) - 1));
+            }
+            cv::imwrite(output_path.string(), save_img);
         }
     }
 
@@ -581,8 +974,23 @@ cv::Mat InfiniteISP::run_pipeline(bool visualize_output, bool save_intermediate)
         YUVConvFormat yuv_conv(img, config_["platform"], config_["sensor_info"], parm_yuv_);
         img = yuv_conv.execute();
         if (save_intermediate) {
-            std::string output_path = "yuv_conversion_format";
-            cv::imwrite(output_path + ".png", img);
+            // Debug: Print image statistics before saving
+            double min_val, max_val;
+            cv::minMaxLoc(img, &min_val, &max_val);
+            cv::Scalar mean_val = cv::mean(img);
+            std::cout << "YUV - Mean: " << mean_val << ", Min: " << min_val << ", Max: " << max_val << ", Type: " << img.type() << ", Channels: " << img.channels() << std::endl;
+            
+            // Convert to 8-bit for display
+            cv::Mat save_img;
+            if (img.type() == CV_32FC3) {
+                img.convertTo(save_img, CV_8UC3, 255.0);
+            } else if (img.type() == CV_16UC3) {
+                img.convertTo(save_img, CV_8UC3, 255.0 / 65535.0);
+            } else {
+                img.convertTo(save_img, CV_8UC3, 255.0 / ((1 << sensor_info_.bit_depth) - 1));
+            }
+            std::string output_path = "yuv_conversion_format.png";
+            cv::imwrite(output_path, save_img);
         }
     }
 
@@ -602,17 +1010,17 @@ void InfiniteISP::load_3a_statistics(bool awb_on, bool ae_on) {
 }
 
 cv::Mat InfiniteISP::execute_with_3a_statistics(bool save_intermediate) {
-    int max_dg = parm_dga_["gain_array"].size();
+    int max_dg = static_cast<int>(parm_dga_["gain_array"].size());
 
     run_pipeline(false, save_intermediate);
-    load_3a_statistics();
+    load_3a_statistics(true, true);  // awb_on=true, ae_on=true
 
     while (!(ae_feedback_ == 0 ||
             (ae_feedback_ == -1 && dga_current_gain_ == max_dg) ||
             (ae_feedback_ == 1 && dga_current_gain_ == 0) ||
             ae_feedback_ == -1)) {
         run_pipeline(false, save_intermediate);
-        load_3a_statistics();
+        load_3a_statistics(true, true);  // awb_on=true, ae_on=true
     }
 
     return run_pipeline(true, save_intermediate);
