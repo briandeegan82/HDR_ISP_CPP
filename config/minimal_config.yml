@@ -20,6 +20,7 @@ sensor_info:
   bayer_pattern: "rggb"
   range: 4095
   bit_depth: 12
+  output_bit_depth: 8
   width: 2592
   height: 1536
 

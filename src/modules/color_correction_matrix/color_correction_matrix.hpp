@@ -17,6 +17,11 @@ private:
     hdr_isp::EigenImage3C apply_ccm_eigen();
     hdr_isp::EigenImage3C apply_ccm_fixed_point();
     hdr_isp::EigenImage3CFixed apply_ccm_fixed_point_input();
+    
+    // Performance optimization: Cache fixed-point matrices
+    void initialize_fixed_point_matrices();
+    void apply_ccm_vectorized_8bit(hdr_isp::EigenImage3CFixed& result);
+    void apply_ccm_vectorized_16bit(hdr_isp::EigenImage3CFixed& result);
 
     hdr_isp::EigenImage3C raw_;
     hdr_isp::EigenImage3CFixed raw_fixed_;
@@ -24,8 +29,17 @@ private:
     YAML::Node parm_ccm_;
     hdr_isp::FixedPointConfig fp_config_;
     bool enable_;
-    int output_bit_depth_;
     Eigen::Matrix3f ccm_mat_;
     bool is_save_;
     bool use_fixed_input_;
+    
+    // Cached fixed-point matrices for performance
+    Eigen::Matrix<int8_t, 3, 3> ccm_mat_8bit_;
+    Eigen::Matrix<int16_t, 3, 3> ccm_mat_16bit_;
+    bool matrices_initialized_;
+    int fractional_bits_;
+    int16_t max_val_8bit_;
+    int16_t max_val_16bit_;
+    int32_t half_scale_32bit_;
+    int64_t half_scale_64bit_;
 }; 

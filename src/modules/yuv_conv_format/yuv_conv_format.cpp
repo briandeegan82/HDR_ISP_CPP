@@ -15,6 +15,23 @@ YUVConvFormat::YUVConvFormat(const cv::Mat& img, const YAML::Node& platform, con
     , is_save_(parm_yuv["is_save"].as<bool>())
     , use_eigen_(true) // Use Eigen by default
     , is_debug_(parm_yuv["is_debug"].as<bool>())
+    , has_eigen_input_(false)
+{
+}
+
+YUVConvFormat::YUVConvFormat(const hdr_isp::EigenImage3C& img, const YAML::Node& platform, const YAML::Node& sensor_info,
+                            const YAML::Node& parm_yuv)
+    : eigen_img_(img)
+    , shape_(cv::Size(img.cols(), img.rows()))
+    , platform_(platform)
+    , sensor_info_(sensor_info)
+    , parm_yuv_(parm_yuv)
+    , in_file_(platform["in_file"].as<std::string>())
+    , is_enable_(parm_yuv["is_enable"].as<bool>())
+    , is_save_(parm_yuv["is_save"].as<bool>())
+    , use_eigen_(true) // Use Eigen by default
+    , is_debug_(parm_yuv["is_debug"].as<bool>())
+    , has_eigen_input_(true)
 {
 }
 
@@ -185,4 +202,96 @@ cv::Mat YUVConvFormat::execute() {
     }
 
     return img_;
+}
+
+hdr_isp::EigenImage3C YUVConvFormat::execute_eigen() {
+    if (is_enable_) {
+        auto start = std::chrono::high_resolution_clock::now();
+        
+        if (has_eigen_input_) {
+            eigen_img_ = convert2yuv_format_eigen_3c();
+        } else {
+            // Convert OpenCV input to Eigen, process, then convert back
+            hdr_isp::EigenImage3C temp_eigen = hdr_isp::EigenImage3C::fromOpenCV(img_);
+            eigen_img_ = convert2yuv_format_eigen_3c();
+        }
+        
+        auto end = std::chrono::high_resolution_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+        
+        if (is_debug_) {
+            std::cout << "  Execution time: " << duration.count() / 1000.0 << "s" << std::endl;
+        }
+    }
+
+    return eigen_img_;
+}
+
+hdr_isp::EigenImage3C YUVConvFormat::convert2yuv_format_eigen_3c() {
+    std::string conv_type = parm_yuv_["conv_type"].as<std::string>();
+    
+    // Get the input image (either from eigen_img_ or convert from OpenCV)
+    hdr_isp::EigenImage3C input_img;
+    if (has_eigen_input_) {
+        input_img = eigen_img_;
+    } else {
+        input_img = hdr_isp::EigenImage3C::fromOpenCV(img_);
+    }
+    
+    int rows = input_img.rows();
+    int cols = input_img.cols();
+    
+    // Create output YUV image (same size as input for now, will be reshaped later)
+    hdr_isp::EigenImage3C yuv_img = input_img.clone();
+    
+    if (conv_type == "422") {
+        // For 422 format, we need to create Y0, U, Y1, V format
+        // This is a complex conversion that typically involves chroma subsampling
+        // For now, we'll keep the same structure but prepare for YUV conversion
+        
+        // Extract Y, U, V channels (assuming input is RGB, we need to convert to YUV first)
+        // For simplicity, we'll use a basic RGB to YUV conversion
+        Eigen::MatrixXf y_channel = (0.299f * input_img.r().data().array() + 0.587f * input_img.g().data().array() + 0.114f * input_img.b().data().array()).matrix();
+        Eigen::MatrixXf u_channel = (-0.169f * input_img.r().data().array() - 0.331f * input_img.g().data().array() + 0.500f * input_img.b().data().array() + 128.0f).matrix();
+        Eigen::MatrixXf v_channel = (0.500f * input_img.r().data().array() - 0.419f * input_img.g().data().array() - 0.081f * input_img.b().data().array() + 128.0f).matrix();
+        
+        // For 422 format, subsample U and V channels horizontally
+        Eigen::MatrixXf u_subsampled = u_channel.block(0, 0, rows, cols/2);
+        Eigen::MatrixXf v_subsampled = v_channel.block(0, 0, rows, cols/2);
+        
+        // Create Y0, U, Y1, V format
+        Eigen::MatrixXf y0 = y_channel.block(0, 0, rows, cols/2);
+        Eigen::MatrixXf y1 = y_channel.block(0, cols/2, rows, cols/2);
+        
+        // Store in output image (this is a simplified approach)
+        yuv_img.r() = hdr_isp::EigenImage(y0);
+        yuv_img.g() = hdr_isp::EigenImage(u_subsampled);
+        yuv_img.b() = hdr_isp::EigenImage(y1);
+        
+        // Note: In a real implementation, you would need to handle the V channel differently
+        // and create a proper 422 format structure
+    }
+    else if (conv_type == "444") {
+        // For 444 format, convert RGB to YUV
+        Eigen::MatrixXf y_channel = (0.299f * input_img.r().data().array() + 0.587f * input_img.g().data().array() + 0.114f * input_img.b().data().array()).matrix();
+        Eigen::MatrixXf u_channel = (-0.169f * input_img.r().data().array() - 0.331f * input_img.g().data().array() + 0.500f * input_img.b().data().array() + 128.0f).matrix();
+        Eigen::MatrixXf v_channel = (0.500f * input_img.r().data().array() - 0.419f * input_img.g().data().array() - 0.081f * input_img.b().data().array() + 128.0f).matrix();
+        
+        yuv_img.r() = hdr_isp::EigenImage(y_channel);
+        yuv_img.g() = hdr_isp::EigenImage(u_channel);
+        yuv_img.b() = hdr_isp::EigenImage(v_channel);
+    }
+    
+    // Save YUV data to file (convert to OpenCV for file I/O)
+    cv::Mat yuv_cv = yuv_img.toOpenCV(CV_32FC3);
+    std::filesystem::path out_path = "out_frames/out_" + in_file_ + ".yuv";
+    std::filesystem::create_directories(out_path.parent_path());
+    
+    std::ofstream raw_wb(out_path, std::ios::binary);
+    if (raw_wb.is_open()) {
+        raw_wb.write(reinterpret_cast<const char*>(yuv_cv.data), yuv_cv.total() * yuv_cv.elemSize());
+        raw_wb.close();
+    }
+    
+    return yuv_img;
 } 

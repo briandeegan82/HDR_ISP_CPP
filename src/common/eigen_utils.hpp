@@ -1,8 +1,19 @@
 #pragma once
 
+/**
+ * @file eigen_utils.hpp
+ * @brief Eigen-based image utilities for HDR ISP pipeline
+ * 
+ * This file provides wrapper classes around Eigen matrices for image processing,
+ * with utilities for conversion to/from OpenCV Mat. The classes handle Eigen::Index
+ * to int conversions with bounds checking to prevent data loss and suppress
+ * compiler warnings about potential truncation.
+ */
+
 #include <opencv2/opencv.hpp>
 #include <Eigen/Dense>
 #include <vector>
+#include <limits>
 
 namespace hdr_isp {
 
@@ -37,9 +48,27 @@ public:
     const Eigen::MatrixXf& data() const { return data_; }
     
     // Basic operations
-    int rows() const { return data_.rows(); }
-    int cols() const { return data_.cols(); }
-    int size() const { return data_.size(); }
+    int rows() const { 
+        Eigen::Index rows = data_.rows();
+        if (rows > std::numeric_limits<int>::max()) {
+            throw std::runtime_error("Matrix rows too large for int conversion");
+        }
+        return static_cast<int>(rows); 
+    }
+    int cols() const { 
+        Eigen::Index cols = data_.cols();
+        if (cols > std::numeric_limits<int>::max()) {
+            throw std::runtime_error("Matrix cols too large for int conversion");
+        }
+        return static_cast<int>(cols); 
+    }
+    int size() const { 
+        Eigen::Index size = data_.size();
+        if (size > std::numeric_limits<int>::max()) {
+            throw std::runtime_error("Matrix size too large for int conversion");
+        }
+        return static_cast<int>(size); 
+    }
     
     // Static factory methods
     static EigenImage Zero(int rows, int cols) { return EigenImage(Eigen::MatrixXf::Zero(rows, cols)); }
@@ -145,8 +174,20 @@ public:
     const EigenImage& b() const { return b_; }
     
     // Basic operations
-    int rows() const { return r_.rows(); }
-    int cols() const { return r_.cols(); }
+    int rows() const { 
+        Eigen::Index rows = r_.rows();
+        if (rows > std::numeric_limits<int>::max()) {
+            throw std::runtime_error("Matrix rows too large for int conversion");
+        }
+        return static_cast<int>(rows); 
+    }
+    int cols() const { 
+        Eigen::Index cols = r_.cols();
+        if (cols > std::numeric_limits<int>::max()) {
+            throw std::runtime_error("Matrix cols too large for int conversion");
+        }
+        return static_cast<int>(cols); 
+    }
     
     // Element-wise operations
     EigenImage3C operator*(float scalar) const;
@@ -188,9 +229,27 @@ public:
     const Eigen::Matrix<uint32_t, Eigen::Dynamic, Eigen::Dynamic>& data() const { return data_; }
     
     // Basic operations
-    int rows() const { return data_.rows(); }
-    int cols() const { return data_.cols(); }
-    int size() const { return data_.size(); }
+    int rows() const { 
+        Eigen::Index rows = data_.rows();
+        if (rows > std::numeric_limits<int>::max()) {
+            throw std::runtime_error("Matrix rows too large for int conversion");
+        }
+        return static_cast<int>(rows); 
+    }
+    int cols() const { 
+        Eigen::Index cols = data_.cols();
+        if (cols > std::numeric_limits<int>::max()) {
+            throw std::runtime_error("Matrix cols too large for int conversion");
+        }
+        return static_cast<int>(cols); 
+    }
+    int size() const { 
+        Eigen::Index size = data_.size();
+        if (size > std::numeric_limits<int>::max()) {
+            throw std::runtime_error("Matrix size too large for int conversion");
+        }
+        return static_cast<int>(size); 
+    }
     
     // Static factory methods
     static EigenImageU32 Zero(int rows, int cols) { 
@@ -321,8 +380,20 @@ public:
     const Eigen::Matrix<int16_t, Eigen::Dynamic, Eigen::Dynamic>& b() const { return b_; }
     
     // Basic operations
-    int rows() const { return r_.rows(); }
-    int cols() const { return r_.cols(); }
+    int rows() const { 
+        Eigen::Index rows = r_.rows();
+        if (rows > std::numeric_limits<int>::max()) {
+            throw std::runtime_error("Matrix rows too large for int conversion");
+        }
+        return static_cast<int>(rows); 
+    }
+    int cols() const { 
+        Eigen::Index cols = r_.cols();
+        if (cols > std::numeric_limits<int>::max()) {
+            throw std::runtime_error("Matrix cols too large for int conversion");
+        }
+        return static_cast<int>(cols); 
+    }
     
     // Element-wise operations
     EigenImage3CFixed operator*(int16_t scalar) const;

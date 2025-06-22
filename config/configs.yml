@@ -13,7 +13,7 @@ sensor_info:
   output_bit_depth: 8
   width: 2592
   height: 1536
-
+  
 companding:
   is_enable: false
   pedestal: 0 #240
@@ -118,6 +118,7 @@ gamma_correction:
   is_enable: true
   # 8-bit
   is_save: false
+  is_debug: false
 
 hdr_durand:
   is_enable: false

@@ -771,10 +771,14 @@ hdr_isp::EigenImageU32 InfiniteISP::run_pipeline(bool visualize_output, bool sav
             Demosaic demosaic(eigen_img, sensor_info_.bayer_pattern, fp_config_, sensor_info_.bit_depth, save_intermediate);
             hdr_isp::EigenImage3CFixed eigen_result_fixed = demosaic.execute_fixed();
             
+            std::cout << "Demosaic - Fixed-point result rows: " << eigen_result_fixed.rows() << ", cols: " << eigen_result_fixed.cols() << std::endl;
+            
             // Keep fixed-point result for fixed-point pipeline
             eigen_img_3c_fixed = eigen_result_fixed;
             // Also convert to floating-point for compatibility
             eigen_img_3c = eigen_result_fixed.toEigenImage3C(fp_config_.getFractionalBits());
+            
+            std::cout << "Demosaic - After assignment, eigen_img_3c_fixed rows: " << eigen_img_3c_fixed.rows() << ", cols: " << eigen_img_3c_fixed.cols() << std::endl;
             
             if (save_intermediate) {
                 fs::path output_path = intermediate_dir / "demosaic_fixed.png";
@@ -830,8 +834,15 @@ hdr_isp::EigenImageU32 InfiniteISP::run_pipeline(bool visualize_output, bool sav
     // 13. Color correction matrix
     std::cout << "Color correction matrix" << std::endl;
     if (parm_ccm_["is_enable"].as<bool>()) {
+        std::cout << "CCM - Fixed-point enabled: " << (fp_config_.isEnabled() ? "true" : "false") << std::endl;
+        std::cout << "CCM - eigen_img_3c_fixed.rows(): " << eigen_img_3c_fixed.rows() << std::endl;
+        std::cout << "CCM - eigen_img_3c_fixed.cols(): " << eigen_img_3c_fixed.cols() << std::endl;
+        std::cout << "CCM - eigen_img_3c.rows(): " << eigen_img_3c.rows() << std::endl;
+        std::cout << "CCM - eigen_img_3c.cols(): " << eigen_img_3c.cols() << std::endl;
+        
         // Check if we have fixed-point data from demosaic
         if (fp_config_.isEnabled() && eigen_img_3c_fixed.rows() > 0) {
+            std::cout << "CCM - Using fixed-point Color Correction Matrix" << std::endl;
             // Use fixed-point Color Correction Matrix
             ColorCorrectionMatrix ccm(eigen_img_3c_fixed, config_["sensor_info"], parm_ccm_, fp_config_);
             hdr_isp::EigenImage3CFixed eigen_result_fixed = ccm.execute_fixed();
@@ -839,10 +850,13 @@ hdr_isp::EigenImageU32 InfiniteISP::run_pipeline(bool visualize_output, bool sav
             // Update both fixed-point and floating-point versions
             eigen_img_3c_fixed = eigen_result_fixed;
             eigen_img_3c = eigen_result_fixed.toEigenImage3C(fp_config_.getFractionalBits());
+            std::cout << "CCM - Fixed-point execution completed" << std::endl;
         } else {
+            std::cout << "CCM - Using floating-point Color Correction Matrix" << std::endl;
             // Use floating-point Color Correction Matrix
             ColorCorrectionMatrix ccm(eigen_img_3c, config_["sensor_info"], parm_ccm_, fp_config_);
             eigen_img_3c = ccm.execute();
+            std::cout << "CCM - Floating-point execution completed" << std::endl;
         }
         
         if (save_intermediate) {
@@ -863,6 +877,8 @@ hdr_isp::EigenImageU32 InfiniteISP::run_pipeline(bool visualize_output, bool sav
             }
             cv::imwrite(output_path.string(), save_img);
         }
+    } else {
+        std::cout << "CCM - Color correction matrix is disabled" << std::endl;
     }
 
     // =====================================================================
@@ -1127,15 +1143,13 @@ hdr_isp::EigenImageU32 InfiniteISP::run_pipeline(bool visualize_output, bool sav
     std::cout << "YUV saving format 444, 422 etc" << std::endl;
     if (parm_yuv_["is_enable"].as<bool>()) {
         std::cout << "Applying YUV conversion format..." << std::endl;
-        // Convert Eigen to OpenCV for YUVConvFormat module
-        cv::Mat temp_img = eigen_img_3c.toOpenCV(CV_32FC3);
-        YUVConvFormat yuv_conv(temp_img, config_["platform"], config_["sensor_info"], parm_yuv_);
-        temp_img = yuv_conv.execute();
-        // Convert back to Eigen
-        eigen_img_3c = hdr_isp::EigenImage3C::fromOpenCV(temp_img);
+        // Use Eigen-based YUVConvFormat module directly
+        YUVConvFormat yuv_conv(eigen_img_3c, config_["platform"], config_["sensor_info"], parm_yuv_);
+        eigen_img_3c = yuv_conv.execute_eigen();
         
         if (save_intermediate) {
             // Debug: Print image statistics before saving
+            cv::Mat temp_img = eigen_img_3c.toOpenCV(CV_32FC3);
             cv::minMaxLoc(temp_img, &min_val_cv, &max_val_cv);
             mean_val_cv = cv::mean(temp_img);
             std::cout << "YUV - Mean: " << mean_val_cv << ", Min: " << min_val_cv << ", Max: " << max_val_cv << ", Type: " << temp_img.type() << ", Channels: " << temp_img.channels() << std::endl;
@@ -1149,8 +1163,8 @@ hdr_isp::EigenImageU32 InfiniteISP::run_pipeline(bool visualize_output, bool sav
             } else {
                 temp_img.convertTo(save_img, CV_8UC3, 255.0 / ((1 << sensor_info_.bit_depth) - 1));
             }
-            std::string output_path = "yuv_conversion_format.png";
-            cv::imwrite(output_path, save_img);
+            fs::path output_path = intermediate_dir / "yuv_conversion_format.png";
+            cv::imwrite(output_path.string(), save_img);
         }
     }
 
