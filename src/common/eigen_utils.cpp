@@ -427,4 +427,80 @@ EigenImageU32 EigenImageU32::extractBayerChannel(const std::string& bayer_patter
     return result;
 }
 
+// EigenImage3CFixed implementation
+EigenImage3CFixed EigenImage3CFixed::fromEigenImage3C(const EigenImage3C& img, int fractional_bits) {
+    int scale_factor = 1 << fractional_bits;
+    
+    EigenImage3CFixed result(img.rows(), img.cols());
+    
+    // Convert each channel from float to fixed-point
+    result.r_ = (img.r().data() * scale_factor).cast<int16_t>();
+    result.g_ = (img.g().data() * scale_factor).cast<int16_t>();
+    result.b_ = (img.b().data() * scale_factor).cast<int16_t>();
+    
+    return result;
+}
+
+EigenImage3C EigenImage3CFixed::toEigenImage3C(int fractional_bits) const {
+    float scale_factor = 1.0f / (1 << fractional_bits);
+    
+    EigenImage3C result(rows(), cols());
+    
+    // Convert each channel from fixed-point to float
+    result.r() = EigenImage(r_.cast<float>() * scale_factor);
+    result.g() = EigenImage(g_.cast<float>() * scale_factor);
+    result.b() = EigenImage(b_.cast<float>() * scale_factor);
+    
+    return result;
+}
+
+cv::Mat EigenImage3CFixed::toOpenCV(int fractional_bits, int opencv_type) const {
+    // First convert to floating-point EigenImage3C
+    EigenImage3C float_img = toEigenImage3C(fractional_bits);
+    
+    // Then convert to OpenCV
+    return float_img.toOpenCV(opencv_type);
+}
+
+EigenImage3CFixed EigenImage3CFixed::operator*(int16_t scalar) const {
+    EigenImage3CFixed result(rows(), cols());
+    result.r_ = r_ * scalar;
+    result.g_ = g_ * scalar;
+    result.b_ = b_ * scalar;
+    return result;
+}
+
+EigenImage3CFixed EigenImage3CFixed::operator*(const Eigen::Vector3i& gains) const {
+    EigenImage3CFixed result(rows(), cols());
+    result.r_ = r_ * gains(0);
+    result.g_ = g_ * gains(1);
+    result.b_ = b_ * gains(2);
+    return result;
+}
+
+EigenImage3CFixed EigenImage3CFixed::clip(int16_t min_val, int16_t max_val) const {
+    EigenImage3CFixed result(rows(), cols());
+    result.r_ = r_.cwiseMax(min_val).cwiseMin(max_val);
+    result.g_ = g_.cwiseMax(min_val).cwiseMin(max_val);
+    result.b_ = b_.cwiseMax(min_val).cwiseMin(max_val);
+    return result;
+}
+
+EigenImage3CFixed EigenImage3CFixed::operator*(const Eigen::Matrix3i& matrix) const {
+    // Use 32-bit intermediates to prevent overflow
+    EigenImage3CFixed result(rows(), cols());
+    
+    for (int i = 0; i < rows(); ++i) {
+        for (int j = 0; j < cols(); ++j) {
+            Eigen::Vector3i pixel(r_(i, j), g_(i, j), b_(i, j));
+            Eigen::Vector3i output = matrix * pixel;
+            result.r_(i, j) = static_cast<int16_t>(output(0));
+            result.g_(i, j) = static_cast<int16_t>(output(1));
+            result.b_(i, j) = static_cast<int16_t>(output(2));
+        }
+    }
+    
+    return result;
+}
+
 } // namespace hdr_isp 

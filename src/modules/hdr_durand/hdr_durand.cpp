@@ -21,6 +21,26 @@ HDRDurandToneMapping::HDRDurandToneMapping(const cv::Mat& img, const YAML::Node&
     , downsample_factor_(params["downsample_factor"].as<int>())
     , output_bit_depth_(sensor_info["output_bit_depth"].as<int>())
     , use_eigen_(true) // Use Eigen by default
+    , has_eigen_input_(false)
+{
+}
+
+HDRDurandToneMapping::HDRDurandToneMapping(const hdr_isp::EigenImageU32& img, const YAML::Node& platform,
+                                          const YAML::Node& sensor_info, const YAML::Node& params)
+    : eigen_img_(img)
+    , platform_(platform)
+    , sensor_info_(sensor_info)
+    , params_(params)
+    , is_enable_(params["is_enable"].as<bool>())
+    , is_save_(params["is_save"].as<bool>())
+    , is_debug_(params["is_debug"].as<bool>())
+    , sigma_space_(params["sigma_space"].as<float>())
+    , sigma_color_(params["sigma_color"].as<float>())
+    , contrast_factor_(params["contrast_factor"].as<float>())
+    , downsample_factor_(params["downsample_factor"].as<int>())
+    , output_bit_depth_(sensor_info["output_bit_depth"].as<int>())
+    , use_eigen_(true) // Use Eigen by default
+    , has_eigen_input_(true)
 {
 }
 
@@ -252,4 +272,44 @@ cv::Mat HDRDurandToneMapping::execute() {
     }
 
     return img_;
+}
+
+hdr_isp::EigenImageU32 HDRDurandToneMapping::execute_eigen() {
+    if (is_enable_) {
+        auto start = std::chrono::high_resolution_clock::now();
+        
+        if (use_eigen_) {
+            // Convert EigenImageU32 to EigenImage for processing
+            hdr_isp::EigenImage eigen_img = hdr_isp::EigenImage::Zero(eigen_img_.rows(), eigen_img_.cols());
+            for (int i = 0; i < eigen_img_.rows(); ++i) {
+                for (int j = 0; j < eigen_img_.cols(); ++j) {
+                    eigen_img(i, j) = static_cast<float>(eigen_img_.data()(i, j));
+                }
+            }
+            
+            hdr_isp::EigenImage result = apply_tone_mapping_eigen();
+            
+            // Convert back to EigenImageU32
+            eigen_img_ = hdr_isp::EigenImageU32(result.rows(), result.cols());
+            for (int i = 0; i < result.rows(); ++i) {
+                for (int j = 0; j < result.cols(); ++j) {
+                    eigen_img_.data()(i, j) = static_cast<uint32_t>(std::max(0.0f, result(i, j)));
+                }
+            }
+        } else {
+            // Use OpenCV implementation (fallback)
+            cv::Mat temp_img = eigen_img_.toOpenCV(CV_32S);
+            temp_img = apply_tone_mapping();
+            eigen_img_ = hdr_isp::EigenImageU32::fromOpenCV(temp_img);
+        }
+        
+        auto end = std::chrono::high_resolution_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+        
+        if (is_debug_) {
+            std::cout << "  Execution time: " << duration.count() / 1000.0 << "s" << std::endl;
+        }
+    }
+
+    return eigen_img_;
 } 

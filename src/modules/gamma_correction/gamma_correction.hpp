@@ -1,6 +1,5 @@
 #pragma once
 
-#include <opencv2/opencv.hpp>
 #include <yaml-cpp/yaml.h>
 #include <string>
 #include <vector>
@@ -8,17 +7,16 @@
 
 class GammaCorrection {
 public:
-    GammaCorrection(const cv::Mat& img, const YAML::Node& platform, 
+    GammaCorrection(const hdr_isp::EigenImage3C& img, const YAML::Node& platform, 
                    const YAML::Node& sensor_info, const YAML::Node& parm_gmm);
-    cv::Mat execute();
+    hdr_isp::EigenImage3C execute();
 
 private:
     std::vector<uint32_t> generate_gamma_lut(int bit_depth);
-    cv::Mat apply_gamma_opencv();
-    cv::Mat apply_gamma_eigen();
+    hdr_isp::EigenImage3C apply_gamma();
     void save();
 
-    cv::Mat img_;
+    hdr_isp::EigenImage3C img_;
     bool enable_;
     YAML::Node sensor_info_;
     int output_bit_depth_;
@@ -26,5 +24,4 @@ private:
     bool is_save_;
     bool is_debug_;
     YAML::Node platform_;
-    bool use_eigen_;
 }; 

@@ -1,194 +1,218 @@
 #include "color_correction_matrix.hpp"
+#include <opencv2/opencv.hpp>
 #include <chrono>
 #include <iostream>
 #include <filesystem>
 
-ColorCorrectionMatrix::ColorCorrectionMatrix(const cv::Mat& img, const YAML::Node& sensor_info, const YAML::Node& parm_ccm)
+ColorCorrectionMatrix::ColorCorrectionMatrix(const hdr_isp::EigenImage3C& img, const YAML::Node& sensor_info, const YAML::Node& parm_ccm, const hdr_isp::FixedPointConfig& fp_config)
     : raw_(img)
     , sensor_info_(sensor_info)
     , parm_ccm_(parm_ccm)
+    , fp_config_(fp_config)
     , enable_(parm_ccm["is_enable"].as<bool>())
-    , output_bit_depth_(sensor_info["bit_depth"].as<int>())
+    , output_bit_depth_(parm_ccm["output_bit_depth"].as<int>())
+    , ccm_mat_(Eigen::Matrix3f::Identity())
     , is_save_(parm_ccm["is_save"].as<bool>())
-    , use_eigen_(true) // Use Eigen by default
+    , use_fixed_input_(false)
 {
+    // Initialize CCM matrix
+    std::vector<float> corrected_red = parm_ccm["corrected_red"].as<std::vector<float>>();
+    std::vector<float> corrected_green = parm_ccm["corrected_green"].as<std::vector<float>>();
+    std::vector<float> corrected_blue = parm_ccm["corrected_blue"].as<std::vector<float>>();
+
+    ccm_mat_.row(0) = Eigen::Map<Eigen::Vector3f>(corrected_red.data());
+    ccm_mat_.row(1) = Eigen::Map<Eigen::Vector3f>(corrected_green.data());
+    ccm_mat_.row(2) = Eigen::Map<Eigen::Vector3f>(corrected_blue.data());
 }
 
-cv::Mat ColorCorrectionMatrix::execute() {
+ColorCorrectionMatrix::ColorCorrectionMatrix(const hdr_isp::EigenImage3CFixed& img, const YAML::Node& sensor_info, const YAML::Node& parm_ccm, const hdr_isp::FixedPointConfig& fp_config)
+    : raw_fixed_(img)
+    , sensor_info_(sensor_info)
+    , parm_ccm_(parm_ccm)
+    , fp_config_(fp_config)
+    , enable_(parm_ccm["is_enable"].as<bool>())
+    , output_bit_depth_(parm_ccm["output_bit_depth"].as<int>())
+    , ccm_mat_(Eigen::Matrix3f::Identity())
+    , is_save_(parm_ccm["is_save"].as<bool>())
+    , use_fixed_input_(true)
+{
+    // Initialize CCM matrix
+    std::vector<float> corrected_red = parm_ccm["corrected_red"].as<std::vector<float>>();
+    std::vector<float> corrected_green = parm_ccm["corrected_green"].as<std::vector<float>>();
+    std::vector<float> corrected_blue = parm_ccm["corrected_blue"].as<std::vector<float>>();
+
+    ccm_mat_.row(0) = Eigen::Map<Eigen::Vector3f>(corrected_red.data());
+    ccm_mat_.row(1) = Eigen::Map<Eigen::Vector3f>(corrected_green.data());
+    ccm_mat_.row(2) = Eigen::Map<Eigen::Vector3f>(corrected_blue.data());
+}
+
+hdr_isp::EigenImage3C ColorCorrectionMatrix::execute() {
     if (!enable_) {
         return raw_;
     }
 
-    auto start = std::chrono::high_resolution_clock::now();
-    
-    cv::Mat result;
-    if (use_eigen_) {
-        result = apply_ccm_eigen();
+    if (fp_config_.isEnabled()) {
+        return apply_ccm_fixed_point();
     } else {
-        result = apply_ccm_opencv();
+        return apply_ccm_eigen();
     }
-    
-    auto end = std::chrono::high_resolution_clock::now();
-    std::chrono::duration<double> duration = end - start;
-    std::cout << "Color Correction Matrix execution time: " << duration.count() << " seconds" << std::endl;
-
-    if (is_save_) {
-        try {
-            std::filesystem::create_directories("out_frames/intermediate");
-            std::string output_path = "out_frames/intermediate/Out_color_correction_matrix_" + 
-                                    std::to_string(result.cols) + "x" + std::to_string(result.rows) + ".png";
-            
-            // Convert to 8-bit before saving
-            cv::Mat save_img;
-            result.convertTo(save_img, CV_8U, 255.0 / ((1 << output_bit_depth_) - 1));
-            
-            // Debug prints for image statistics
-            double min_val, max_val;
-            cv::minMaxLoc(save_img, &min_val, &max_val);
-            cv::Scalar mean_val = cv::mean(save_img);
-            std::cout << "CCM Save image statistics:" << std::endl;
-            std::cout << "  Mean: " << mean_val[0] << std::endl;
-            std::cout << "  Min: " << min_val << std::endl;
-            std::cout << "  Max: " << max_val << std::endl;
-            std::cout << "  Image size: " << save_img.size() << std::endl;
-            std::cout << "  Number of channels: " << save_img.channels() << std::endl;
-            
-            bool write_success = cv::imwrite(output_path, save_img);
-            if (!write_success) {
-                std::cerr << "Error: Failed to write image to: " << output_path << std::endl;
-            } else {
-                std::cout << "Successfully wrote image to: " << output_path << std::endl;
-            }
-        } catch (const std::exception& e) {
-            std::cerr << "Error saving image: " << e.what() << std::endl;
-        }
-    }
-
-    return result;
 }
 
-cv::Mat ColorCorrectionMatrix::apply_ccm_opencv() {
+hdr_isp::EigenImage3CFixed ColorCorrectionMatrix::execute_fixed() {
+    if (!enable_) {
+        return raw_fixed_;
+    }
+
+    return apply_ccm_fixed_point_input();
+}
+
+hdr_isp::EigenImage3C ColorCorrectionMatrix::apply_ccm_eigen() {
     // Get CCM parameters
     std::vector<float> corrected_red = parm_ccm_["corrected_red"].as<std::vector<float>>();
     std::vector<float> corrected_green = parm_ccm_["corrected_green"].as<std::vector<float>>();
     std::vector<float> corrected_blue = parm_ccm_["corrected_blue"].as<std::vector<float>>();
 
     // Create CCM matrix
-    ccm_mat_ = cv::Mat(3, 3, CV_32F);
-    for (int i = 0; i < 3; i++) {
-        ccm_mat_.at<float>(0, i) = corrected_red[i];
-        ccm_mat_.at<float>(1, i) = corrected_green[i];
-        ccm_mat_.at<float>(2, i) = corrected_blue[i];
-    }
+    ccm_mat_.row(0) = Eigen::Map<Eigen::Vector3f>(corrected_red.data());
+    ccm_mat_.row(1) = Eigen::Map<Eigen::Vector3f>(corrected_green.data());
+    ccm_mat_.row(2) = Eigen::Map<Eigen::Vector3f>(corrected_blue.data());
 
-    // Debug print CCM matrix
-    std::cout << "CCM Matrix:" << std::endl;
-    for (int i = 0; i < 3; i++) {
-        for (int j = 0; j < 3; j++) {
-            std::cout << ccm_mat_.at<float>(i, j) << "\t";
-        }
-        std::cout << std::endl;
-    }
+    // Apply CCM using floating-point arithmetic
+    hdr_isp::EigenImage3C result = raw_ * ccm_mat_;
 
-    // Print input image statistics
-    std::cout << "CCM Input image statistics:" << std::endl;
-    std::cout << "  Type: " << raw_.type() << " (CV_8U=" << CV_8U << ", CV_16U=" << CV_16U << ", CV_32F=" << CV_32F << ")" << std::endl;
-    std::cout << "  Channels: " << raw_.channels() << std::endl;
-    std::cout << "  Size: " << raw_.size() << std::endl;
-    double min_val, max_val;
-    cv::minMaxLoc(raw_, &min_val, &max_val);
-    std::cout << "  Min: " << min_val << ", Max: " << max_val << std::endl;
-
-    // Convert to float for CCM operation
-    cv::Mat float_img;
-    raw_.convertTo(float_img, CV_32F);
-
-    // Reshape image to Nx3 matrix
-    cv::Mat reshaped = float_img.reshape(1, float_img.total());
-
-    // Debug print reshaped matrix dimensions
-    std::cout << "Reshaped matrix dimensions: " << reshaped.rows << "x" << reshaped.cols << std::endl;
-
-    // Apply CCM
-    cv::Mat result;
-    
-    // Transpose CCM matrix for correct multiplication order
-    cv::Mat ccm_transposed;
-    cv::transpose(ccm_mat_, ccm_transposed);
-    
-    // Debug print for center pixel CCM multiplication
-    int center_idx = reshaped.rows / 2;
-    std::cout << "\nCCM Matrix multiplication for center pixel:" << std::endl;
-    std::cout << "Input RGB values: [" << reshaped.at<float>(center_idx, 0) << ", "
-              << reshaped.at<float>(center_idx, 1) << ", "
-              << reshaped.at<float>(center_idx, 2) << "]" << std::endl;
-    
-    std::cout << "CCM Matrix (transposed):" << std::endl;
-    for (int i = 0; i < 3; i++) {
-        std::cout << "[";
-        for (int j = 0; j < 3; j++) {
-            std::cout << ccm_transposed.at<float>(i, j);
-            if (j < 2) std::cout << " ";
-        }
-        std::cout << "]" << std::endl;
-    }
-    
-    cv::gemm(reshaped, ccm_transposed, 1.0, cv::Mat(), 0.0, result);
-    
-    // Print result for center pixel
-    std::cout << "Output RGB values: [" << result.at<float>(center_idx, 0) << ", "
-              << result.at<float>(center_idx, 1) << ", "
-              << result.at<float>(center_idx, 2) << "]" << std::endl << std::endl;
-
-    // Reshape back to original dimensions
-    result = result.reshape(3, float_img.rows);
-
-    // Print result statistics before conversion
-    std::cout << "CCM Result before conversion statistics:" << std::endl;
-    cv::minMaxLoc(result, &min_val, &max_val);
-    std::cout << "  Min: " << min_val << ", Max: " << max_val << std::endl;
-
-    // Convert back to output bit depth
-    cv::Mat output;
-    result.convertTo(output, CV_16UC3);
-
-    // Print output image statistics
-    std::cout << "CCM Output image statistics:" << std::endl;
-    std::cout << "  Type: " << output.type() << std::endl;
-    std::cout << "  Channels: " << output.channels() << std::endl;
-    std::cout << "  Size: " << output.size() << std::endl;
-    cv::minMaxLoc(output, &min_val, &max_val);
-    std::cout << "  Min: " << min_val << ", Max: " << max_val << std::endl;
-
-    return output;
+    return result;
 }
 
-cv::Mat ColorCorrectionMatrix::apply_ccm_eigen() {
+hdr_isp::EigenImage3C ColorCorrectionMatrix::apply_ccm_fixed_point() {
     // Get CCM parameters
     std::vector<float> corrected_red = parm_ccm_["corrected_red"].as<std::vector<float>>();
     std::vector<float> corrected_green = parm_ccm_["corrected_green"].as<std::vector<float>>();
     std::vector<float> corrected_blue = parm_ccm_["corrected_blue"].as<std::vector<float>>();
 
-    // Create CCM matrix using Eigen
-    Eigen::Matrix3f ccm_eigen;
-    ccm_eigen.row(0) = Eigen::Map<Eigen::Vector3f>(corrected_red.data());
-    ccm_eigen.row(1) = Eigen::Map<Eigen::Vector3f>(corrected_green.data());
-    ccm_eigen.row(2) = Eigen::Map<Eigen::Vector3f>(corrected_blue.data());
+    // Create floating-point CCM matrix
+    ccm_mat_.row(0) = Eigen::Map<Eigen::Vector3f>(corrected_red.data());
+    ccm_mat_.row(1) = Eigen::Map<Eigen::Vector3f>(corrected_green.data());
+    ccm_mat_.row(2) = Eigen::Map<Eigen::Vector3f>(corrected_blue.data());
 
-    // Convert input to EigenImage3C for 3-channel RGB image
-    hdr_isp::EigenImage3C eigen_img = hdr_isp::EigenImage3C::fromOpenCV(raw_);
-
-    // Apply CCM using matrix multiplication
-    hdr_isp::EigenImage3C result = eigen_img * ccm_eigen;
-
-    // Apply bit depth conversion
-    if (output_bit_depth_ == 8) {
-        result = result.clip(0.0f, 255.0f);
-    } else if (output_bit_depth_ == 16) {
-        result = result.clip(0.0f, 65535.0f);
+    int fractional_bits = fp_config_.getFractionalBits();
+    
+    // Choose fixed-point type based on precision mode
+    if (fp_config_.getPrecisionMode() == hdr_isp::FixedPointPrecision::FAST_8BIT) {
+        // Use 8-bit fixed-point arithmetic
+        auto ccm_mat_fixed = hdr_isp::FixedPointUtils::applyFixedPointScaling<int8_t>(ccm_mat_, fractional_bits);
+        
+        // Convert input to fixed-point
+        hdr_isp::EigenImage3C result(raw_.rows(), raw_.cols());
+        
+        for (int i = 0; i < raw_.rows(); ++i) {
+            for (int j = 0; j < raw_.cols(); ++j) {
+                // Convert each channel to fixed-point using int32_t for intermediate calculations
+                int32_t r_fixed = hdr_isp::FixedPointUtils::floatToFixed<int8_t>(raw_.r()(i, j), fractional_bits);
+                int32_t g_fixed = hdr_isp::FixedPointUtils::floatToFixed<int8_t>(raw_.g()(i, j), fractional_bits);
+                int32_t b_fixed = hdr_isp::FixedPointUtils::floatToFixed<int8_t>(raw_.b()(i, j), fractional_bits);
+                
+                // Apply fixed-point matrix multiplication using int32_t for intermediate calculations
+                int32_t out_r = static_cast<int32_t>(ccm_mat_fixed(0, 0)) * r_fixed + 
+                               static_cast<int32_t>(ccm_mat_fixed(0, 1)) * g_fixed + 
+                               static_cast<int32_t>(ccm_mat_fixed(0, 2)) * b_fixed;
+                int32_t out_g = static_cast<int32_t>(ccm_mat_fixed(1, 0)) * r_fixed + 
+                               static_cast<int32_t>(ccm_mat_fixed(1, 1)) * g_fixed + 
+                               static_cast<int32_t>(ccm_mat_fixed(1, 2)) * b_fixed;
+                int32_t out_b = static_cast<int32_t>(ccm_mat_fixed(2, 0)) * r_fixed + 
+                               static_cast<int32_t>(ccm_mat_fixed(2, 1)) * g_fixed + 
+                               static_cast<int32_t>(ccm_mat_fixed(2, 2)) * b_fixed;
+                
+                // Convert back to float using int32_t as the template parameter
+                result.r()(i, j) = hdr_isp::FixedPointUtils::fixedToFloat<int32_t>(out_r, fractional_bits);
+                result.g()(i, j) = hdr_isp::FixedPointUtils::fixedToFloat<int32_t>(out_g, fractional_bits);
+                result.b()(i, j) = hdr_isp::FixedPointUtils::fixedToFloat<int32_t>(out_b, fractional_bits);
+            }
+        }
+        
+        return result;
+    } else {
+        // Use 16-bit fixed-point arithmetic
+        auto ccm_mat_fixed = hdr_isp::FixedPointUtils::applyFixedPointScaling<int16_t>(ccm_mat_, fractional_bits);
+        
+        // Convert input to fixed-point
+        hdr_isp::EigenImage3C result(raw_.rows(), raw_.cols());
+        
+        for (int i = 0; i < raw_.rows(); ++i) {
+            for (int j = 0; j < raw_.cols(); ++j) {
+                // Convert each channel to fixed-point using int64_t for intermediate calculations
+                int64_t r_fixed = hdr_isp::FixedPointUtils::floatToFixed<int16_t>(raw_.r()(i, j), fractional_bits);
+                int64_t g_fixed = hdr_isp::FixedPointUtils::floatToFixed<int16_t>(raw_.g()(i, j), fractional_bits);
+                int64_t b_fixed = hdr_isp::FixedPointUtils::floatToFixed<int16_t>(raw_.b()(i, j), fractional_bits);
+                
+                // Apply fixed-point matrix multiplication using int64_t for intermediate calculations
+                int64_t out_r = static_cast<int64_t>(ccm_mat_fixed(0, 0)) * r_fixed + 
+                               static_cast<int64_t>(ccm_mat_fixed(0, 1)) * g_fixed + 
+                               static_cast<int64_t>(ccm_mat_fixed(0, 2)) * b_fixed;
+                int64_t out_g = static_cast<int64_t>(ccm_mat_fixed(1, 0)) * r_fixed + 
+                               static_cast<int64_t>(ccm_mat_fixed(1, 1)) * g_fixed + 
+                               static_cast<int64_t>(ccm_mat_fixed(1, 2)) * b_fixed;
+                int64_t out_b = static_cast<int64_t>(ccm_mat_fixed(2, 0)) * r_fixed + 
+                               static_cast<int64_t>(ccm_mat_fixed(2, 1)) * g_fixed + 
+                               static_cast<int64_t>(ccm_mat_fixed(2, 2)) * b_fixed;
+                
+                // Convert back to float using int64_t as the template parameter
+                result.r()(i, j) = hdr_isp::FixedPointUtils::fixedToFloat<int64_t>(out_r, fractional_bits);
+                result.g()(i, j) = hdr_isp::FixedPointUtils::fixedToFloat<int64_t>(out_g, fractional_bits);
+                result.b()(i, j) = hdr_isp::FixedPointUtils::fixedToFloat<int64_t>(out_b, fractional_bits);
+            }
+        }
+        
+        return result;
     }
+}
 
-    // Convert back to OpenCV Mat
-    cv::Mat output = result.toOpenCV(CV_16UC3);
-    return output;
+hdr_isp::EigenImage3CFixed ColorCorrectionMatrix::apply_ccm_fixed_point_input() {
+    // Get CCM parameters
+    std::vector<float> corrected_red = parm_ccm_["corrected_red"].as<std::vector<float>>();
+    std::vector<float> corrected_green = parm_ccm_["corrected_green"].as<std::vector<float>>();
+    std::vector<float> corrected_blue = parm_ccm_["corrected_blue"].as<std::vector<float>>();
+
+    // Create floating-point CCM matrix
+    ccm_mat_.row(0) = Eigen::Map<Eigen::Vector3f>(corrected_red.data());
+    ccm_mat_.row(1) = Eigen::Map<Eigen::Vector3f>(corrected_green.data());
+    ccm_mat_.row(2) = Eigen::Map<Eigen::Vector3f>(corrected_blue.data());
+
+    int fractional_bits = fp_config_.getFractionalBits();
+    
+    // Choose fixed-point type based on precision mode
+    if (fp_config_.getPrecisionMode() == hdr_isp::FixedPointPrecision::FAST_8BIT) {
+        // Use 8-bit fixed-point arithmetic
+        Eigen::Matrix<int8_t, 3, 3> ccm_mat_8bit = hdr_isp::FixedPointUtils::applyFixedPointScaling<int8_t>(ccm_mat_, fractional_bits);
+        
+        std::cout << "CCM - Using 8-bit fixed-point arithmetic (fractional bits: " << fractional_bits << ")" << std::endl;
+        
+        // Cast to Eigen::Matrix3i for compatibility with EigenImage3CFixed operator*
+        Eigen::Matrix3i ccm_mat_int = ccm_mat_8bit.cast<int>();
+        
+        // Apply fixed-point matrix multiplication
+        hdr_isp::EigenImage3CFixed result = raw_fixed_ * ccm_mat_int;
+        
+        // Clip to valid range
+        int16_t max_val = (1 << (8 - fractional_bits)) - 1;
+        result = result.clip(-max_val, max_val);
+        
+        return result;
+    } else {
+        // Use 16-bit fixed-point arithmetic
+        Eigen::Matrix<int16_t, 3, 3> ccm_mat_16bit = hdr_isp::FixedPointUtils::applyFixedPointScaling<int16_t>(ccm_mat_, fractional_bits);
+        
+        std::cout << "CCM - Using 16-bit fixed-point arithmetic (fractional bits: " << fractional_bits << ")" << std::endl;
+        
+        // Cast to Eigen::Matrix3i for compatibility with EigenImage3CFixed operator*
+        Eigen::Matrix3i ccm_mat_int = ccm_mat_16bit.cast<int>();
+        
+        // Apply fixed-point matrix multiplication
+        hdr_isp::EigenImage3CFixed result = raw_fixed_ * ccm_mat_int;
+        
+        // Clip to valid range
+        int16_t max_val = (1 << (16 - fractional_bits)) - 1;
+        result = result.clip(-max_val, max_val);
+        
+        return result;
+    }
 } 

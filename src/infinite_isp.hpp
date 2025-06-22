@@ -6,6 +6,7 @@
 #include <opencv2/opencv.hpp>
 #include <yaml-cpp/yaml.h>
 #include "common/eigen_utils.hpp"
+#include "common/fixed_point_utils.hpp"
 
 // Forward declarations of module classes
 class Crop;
@@ -48,6 +49,7 @@ private:
     
     // Configuration parameters
     YAML::Node config_;
+    hdr_isp::FixedPointConfig fp_config_;
     std::string platform_;
     std::string raw_file_;
     bool render_3a_;
@@ -103,5 +105,5 @@ private:
     void handle_non_byte_aligned_bit_depth();
     hdr_isp::EigenImageU32 run_pipeline(bool visualize_output, bool save_intermediate);
     void load_3a_statistics(bool awb_on, bool ae_on);
-    cv::Mat execute_with_3a_statistics(bool save_intermediate);
+    hdr_isp::EigenImageU32 execute_with_3a_statistics(bool save_intermediate);
 }; 

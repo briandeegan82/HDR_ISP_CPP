@@ -21,6 +21,7 @@
 #include "modules/sharpen/sharpen.hpp"
 #include "modules/white_balance/white_balance.hpp"
 #include "modules/yuv_conv_format/yuv_conv_format.hpp"
+#include "common/fixed_point_utils.hpp"
 #include <filesystem>
 #include <chrono>
 #include <ctime>
@@ -33,6 +34,7 @@ InfiniteISP::InfiniteISP(const std::string& data_path, const std::string& config
     : data_path_(data_path)
     , config_path_(config_path)
     , memory_mapped_data_(memory_mapped_data)
+    , fp_config_(YAML::Node())  // Initialize with empty YAML node
     , dga_current_gain_(0.0f)
     , ae_feedback_(0) {
     load_config(config_path);
@@ -41,6 +43,10 @@ InfiniteISP::InfiniteISP(const std::string& data_path, const std::string& config
 void InfiniteISP::load_config(const std::string& config_path) {
     try {
         config_ = YAML::LoadFile(config_path);
+        
+        // Initialize fixed-point configuration
+        fp_config_ = hdr_isp::FixedPointConfig(config_);
+        
         // Extract workspace info
         raw_file_ = config_["platform"]["filename"].as<std::string>();
         render_3a_ = config_["platform"]["render_3a"].as<bool>();
@@ -307,8 +313,9 @@ hdr_isp::EigenImageU32 InfiniteISP::run_pipeline(bool visualize_output, bool sav
     std::cout << "Size: " << eigen_img.cols() << "x" << eigen_img.rows() << ", Channels: 1" << std::endl;
     std::cout << "==========================" << std::endl;
 
-    // Variable to hold the final result after demosaic (will be converted to cv::Mat for modules that need it)
-    cv::Mat img;
+    // Variable to hold the final result after demosaic (will be Eigen for modules that need it)
+    hdr_isp::EigenImage3C eigen_img_3c;
+    hdr_isp::EigenImage3CFixed eigen_img_3c_fixed;
     
     // Variables for OpenCV conversions and debug output
     cv::Mat opencv_img;
@@ -359,24 +366,27 @@ hdr_isp::EigenImageU32 InfiniteISP::run_pipeline(bool visualize_output, bool sav
     // 2. Dead pixels correction
     std::cout << "Dead pixels correction" << std::endl;
     if (parm_dpc_["is_enable"].as<bool>()) {
-        // Convert to OpenCV for dead pixel correction module
-        opencv_img = eigen_img.toOpenCV(CV_32S);
-        DeadPixelCorrection dpc(opencv_img, config_["platform"], config_["sensor_info"], parm_dpc_);
-        opencv_img = dpc.execute();
-        eigen_img = hdr_isp::EigenImageU32::fromOpenCV(opencv_img);
+        // Use Eigen-based dead pixel correction module directly
+        DeadPixelCorrection dpc(eigen_img, config_["platform"], config_["sensor_info"], parm_dpc_);
+        eigen_img = dpc.execute_eigen();
         
-        // Debug: Print image statistics after dead pixel correction
-        cv::minMaxLoc(opencv_img, &min_val_cv, &max_val_cv);
-        mean_val_cv = cv::mean(opencv_img);
+        // Debug: Print image statistics after dead pixel correction using Eigen
+        uint32_t min_val = eigen_img.min();
+        uint32_t max_val = eigen_img.max();
+        float mean_val = eigen_img.mean();
         std::cout << "=== AFTER DEAD PIXEL CORRECTION ===" << std::endl;
-        std::cout << "Type: " << opencv_img.type() << std::endl;
-        std::cout << "Min: " << min_val_cv << ", Mean: " << mean_val_cv[0] << ", Max: " << max_val_cv << std::endl;
-        std::cout << "Size: " << opencv_img.cols << "x" << opencv_img.rows << ", Channels: " << opencv_img.channels() << std::endl;
+        std::cout << "Type: EigenImageU32 (uint32_t)" << std::endl;
+        std::cout << "Min: " << min_val << ", Mean: " << mean_val << ", Max: " << max_val << std::endl;
+        std::cout << "Size: " << eigen_img.cols() << "x" << eigen_img.rows() << ", Channels: 1" << std::endl;
         std::cout << "==================================" << std::endl;
         
         if (save_intermediate) {
             fs::path output_path = intermediate_dir / "dead_pixel_correction.png";
+            // Convert to OpenCV for saving
+            opencv_img = eigen_img.toOpenCV(CV_32S);
             // Debug: Print image statistics before saving
+            cv::minMaxLoc(opencv_img, &min_val_cv, &max_val_cv);
+            mean_val_cv = cv::mean(opencv_img);
             std::cout << "DeadPixel - Mean: " << mean_val_cv[0] << ", Min: " << min_val_cv << ", Max: " << max_val_cv << ", Type: " << opencv_img.type() << std::endl;
             
             // Convert to 8-bit for display
@@ -722,14 +732,14 @@ hdr_isp::EigenImageU32 InfiniteISP::run_pipeline(bool visualize_output, bool sav
     // 11. HDR tone mapping
     std::cout << "HDR tone mapping" << std::endl;
     if (parm_durand_["is_enable"].as<bool>()) {
-        // Convert to OpenCV for HDR tone mapping module
-        opencv_img = eigen_img.toOpenCV(CV_32S);
-        HDRDurandToneMapping hdr(opencv_img, config_["platform"], config_["sensor_info"], parm_durand_);
-        opencv_img = hdr.execute();
-        eigen_img = hdr_isp::EigenImageU32::fromOpenCV(opencv_img);
+        // Use Eigen-based HDR tone mapping module directly
+        HDRDurandToneMapping hdr(eigen_img, config_["platform"], config_["sensor_info"], parm_durand_);
+        eigen_img = hdr.execute_eigen();
         
         if (save_intermediate) {
             fs::path output_path = intermediate_dir / "hdr_tone_mapping.png";
+            // Convert to OpenCV for saving
+            opencv_img = eigen_img.toOpenCV(CV_32S);
             // Debug: Print image statistics before saving
             cv::minMaxLoc(opencv_img, &min_val_cv, &max_val_cv);
             mean_val_cv = cv::mean(opencv_img);
@@ -753,30 +763,66 @@ hdr_isp::EigenImageU32 InfiniteISP::run_pipeline(bool visualize_output, bool sav
     std::cout << "CFA demosaicing" << std::endl;
     if (parm_dem_["is_enable"].as<bool>()) {
         std::cout << "Applying demosaic..." << std::endl;
-        // Use Eigen-based demosaic module directly
-        Demosaic demosaic(eigen_img, sensor_info_.bayer_pattern, sensor_info_.bit_depth, save_intermediate);
-        hdr_isp::EigenImage3C eigen_result = demosaic.execute();
         
-        // Convert EigenImage3C to cv::Mat for the rest of the pipeline
-        img = eigen_result.toOpenCV(CV_32FC3);
-        
-        if (save_intermediate) {
-            fs::path output_path = intermediate_dir / "demosaic.png";
-            // Debug: Print image statistics before saving
-            cv::minMaxLoc(img, &min_val_cv, &max_val_cv);
-            mean_val_cv = cv::mean(img);
-            std::cout << "Demosaic - Mean: " << mean_val_cv << ", Min: " << min_val_cv << ", Max: " << max_val_cv << ", Type: " << img.type() << ", Channels: " << img.channels() << std::endl;
+        // Check if fixed-point is enabled
+        if (fp_config_.isEnabled()) {
+            std::cout << "Using fixed-point demosaic output..." << std::endl;
+            // Use Eigen-based demosaic module with fixed-point output
+            Demosaic demosaic(eigen_img, sensor_info_.bayer_pattern, fp_config_, sensor_info_.bit_depth, save_intermediate);
+            hdr_isp::EigenImage3CFixed eigen_result_fixed = demosaic.execute_fixed();
             
-            // Convert to 8-bit for display
-            cv::Mat save_img;
-            if (img.type() == CV_32FC3) {
-                img.convertTo(save_img, CV_8UC3, 255.0);
-            } else if (img.type() == CV_16UC3) {
-                img.convertTo(save_img, CV_8UC3, 255.0 / 65535.0);
-            } else {
-                img.convertTo(save_img, CV_8UC3, 255.0 / ((1 << sensor_info_.bit_depth) - 1));
+            // Keep fixed-point result for fixed-point pipeline
+            eigen_img_3c_fixed = eigen_result_fixed;
+            // Also convert to floating-point for compatibility
+            eigen_img_3c = eigen_result_fixed.toEigenImage3C(fp_config_.getFractionalBits());
+            
+            if (save_intermediate) {
+                fs::path output_path = intermediate_dir / "demosaic_fixed.png";
+                // Debug: Print image statistics before saving
+                cv::Mat temp_img = eigen_result_fixed.toOpenCV(fp_config_.getFractionalBits(), CV_32FC3);
+                cv::minMaxLoc(temp_img, &min_val_cv, &max_val_cv);
+                mean_val_cv = cv::mean(temp_img);
+                std::cout << "Demosaic Fixed - Mean: " << mean_val_cv << ", Min: " << min_val_cv << ", Max: " << max_val_cv << ", Type: " << temp_img.type() << ", Channels: " << temp_img.channels() << std::endl;
+                std::cout << "Fixed-point fractional bits: " << fp_config_.getFractionalBits() << std::endl;
+                
+                // Convert to 8-bit for display
+                cv::Mat save_img;
+                if (temp_img.type() == CV_32FC3) {
+                    temp_img.convertTo(save_img, CV_8UC3, 255.0);
+                } else if (temp_img.type() == CV_16UC3) {
+                    temp_img.convertTo(save_img, CV_8UC3, 255.0 / 65535.0);
+                } else {
+                    temp_img.convertTo(save_img, CV_8UC3, 255.0 / ((1 << sensor_info_.bit_depth) - 1));
+                }
+                cv::imwrite(output_path.string(), save_img);
             }
-            cv::imwrite(output_path.string(), save_img);
+        } else {
+            // Use original floating-point demosaic
+            Demosaic demosaic(eigen_img, sensor_info_.bayer_pattern, sensor_info_.bit_depth, save_intermediate);
+            hdr_isp::EigenImage3C eigen_result = demosaic.execute();
+            
+            // Keep floating-point result
+            eigen_img_3c = eigen_result;
+            
+            if (save_intermediate) {
+                fs::path output_path = intermediate_dir / "demosaic.png";
+                // Debug: Print image statistics before saving
+                cv::Mat temp_img = eigen_result.toOpenCV(CV_32FC3);
+                cv::minMaxLoc(temp_img, &min_val_cv, &max_val_cv);
+                mean_val_cv = cv::mean(temp_img);
+                std::cout << "Demosaic - Mean: " << mean_val_cv << ", Min: " << min_val_cv << ", Max: " << max_val_cv << ", Type: " << temp_img.type() << ", Channels: " << temp_img.channels() << std::endl;
+                
+                // Convert to 8-bit for display
+                cv::Mat save_img;
+                if (temp_img.type() == CV_32FC3) {
+                    temp_img.convertTo(save_img, CV_8UC3, 255.0);
+                } else if (temp_img.type() == CV_16UC3) {
+                    temp_img.convertTo(save_img, CV_8UC3, 255.0 / 65535.0);
+                } else {
+                    eigen_img_3c.toOpenCV(CV_32FC3).convertTo(save_img, CV_8UC3, 255.0 / ((1 << sensor_info_.bit_depth) - 1));
+                }
+                cv::imwrite(output_path.string(), save_img);
+            }
         }
     }
 
@@ -784,23 +830,36 @@ hdr_isp::EigenImageU32 InfiniteISP::run_pipeline(bool visualize_output, bool sav
     // 13. Color correction matrix
     std::cout << "Color correction matrix" << std::endl;
     if (parm_ccm_["is_enable"].as<bool>()) {
-        ColorCorrectionMatrix ccm(img, config_["sensor_info"], parm_ccm_);
-        img = ccm.execute();
+        // Check if we have fixed-point data from demosaic
+        if (fp_config_.isEnabled() && eigen_img_3c_fixed.rows() > 0) {
+            // Use fixed-point Color Correction Matrix
+            ColorCorrectionMatrix ccm(eigen_img_3c_fixed, config_["sensor_info"], parm_ccm_, fp_config_);
+            hdr_isp::EigenImage3CFixed eigen_result_fixed = ccm.execute_fixed();
+            
+            // Update both fixed-point and floating-point versions
+            eigen_img_3c_fixed = eigen_result_fixed;
+            eigen_img_3c = eigen_result_fixed.toEigenImage3C(fp_config_.getFractionalBits());
+        } else {
+            // Use floating-point Color Correction Matrix
+            ColorCorrectionMatrix ccm(eigen_img_3c, config_["sensor_info"], parm_ccm_, fp_config_);
+            eigen_img_3c = ccm.execute();
+        }
+        
         if (save_intermediate) {
             fs::path output_path = intermediate_dir / "color_correction_matrix.png";
             // Debug: Print image statistics before saving
-            cv::minMaxLoc(img, &min_val_cv, &max_val_cv);
-            mean_val_cv = cv::mean(img);
-            std::cout << "CCM - Mean: " << mean_val_cv << ", Min: " << min_val_cv << ", Max: " << max_val_cv << ", Type: " << img.type() << ", Channels: " << img.channels() << std::endl;
+            cv::minMaxLoc(eigen_img_3c.toOpenCV(CV_32FC3), &min_val_cv, &max_val_cv);
+            mean_val_cv = cv::mean(eigen_img_3c.toOpenCV(CV_32FC3));
+            std::cout << "CCM - Mean: " << mean_val_cv << ", Min: " << min_val_cv << ", Max: " << max_val_cv << ", Type: " << eigen_img_3c.toOpenCV(CV_32FC3).type() << ", Channels: " << eigen_img_3c.toOpenCV(CV_32FC3).channels() << std::endl;
             
             // Convert to 8-bit for display
             cv::Mat save_img;
-            if (img.type() == CV_32FC3) {
-                img.convertTo(save_img, CV_8UC3, 255.0);
-            } else if (img.type() == CV_16UC3) {
-                img.convertTo(save_img, CV_8UC3, 255.0 / 65535.0);
+            if (eigen_img_3c.toOpenCV(CV_32FC3).type() == CV_32FC3) {
+                eigen_img_3c.toOpenCV(CV_32FC3).convertTo(save_img, CV_8UC3, 255.0);
+            } else if (eigen_img_3c.toOpenCV(CV_32FC3).type() == CV_16UC3) {
+                eigen_img_3c.toOpenCV(CV_32FC3).convertTo(save_img, CV_8UC3, 255.0 / 65535.0);
             } else {
-                img.convertTo(save_img, CV_8UC3, 255.0 / ((1 << sensor_info_.bit_depth) - 1));
+                eigen_img_3c.toOpenCV(CV_32FC3).convertTo(save_img, CV_8UC3, 255.0 / ((1 << sensor_info_.bit_depth) - 1));
             }
             cv::imwrite(output_path.string(), save_img);
         }
@@ -811,24 +870,30 @@ hdr_isp::EigenImageU32 InfiniteISP::run_pipeline(bool visualize_output, bool sav
     std::cout << "Gamma" << std::endl;
     if (parm_gmc_["is_enable"].as<bool>()) {
         std::cout << "Applying gamma correction..." << std::endl;
-        GammaCorrection gamma(img, config_["platform"], config_["sensor_info"], parm_gmc_);
-        img = gamma.execute();
+        
+        // Convert cv::Mat to EigenImage3C for gamma correction
+        hdr_isp::EigenImage3C eigen_img = eigen_img_3c;
+        GammaCorrection gamma(eigen_img, config_["platform"], config_["sensor_info"], parm_gmc_);
+        eigen_img = gamma.execute();
+        
+        // Convert back to cv::Mat
+        eigen_img_3c = eigen_img;
         
         if (save_intermediate) {
             fs::path output_path = intermediate_dir / "gamma_correction.png";
             // Debug: Print image statistics before saving
-            cv::minMaxLoc(img, &min_val_cv, &max_val_cv);
-            mean_val_cv = cv::mean(img);
-            std::cout << "Gamma - Mean: " << mean_val_cv << ", Min: " << min_val_cv << ", Max: " << max_val_cv << ", Type: " << img.type() << ", Channels: " << img.channels() << std::endl;
+            cv::minMaxLoc(eigen_img.toOpenCV(CV_32FC3), &min_val_cv, &max_val_cv);
+            mean_val_cv = cv::mean(eigen_img.toOpenCV(CV_32FC3));
+            std::cout << "Gamma - Mean: " << mean_val_cv << ", Min: " << min_val_cv << ", Max: " << max_val_cv << ", Type: " << eigen_img.toOpenCV(CV_32FC3).type() << ", Channels: " << eigen_img.toOpenCV(CV_32FC3).channels() << std::endl;
             
             // Convert to 8-bit for display
             cv::Mat save_img;
-            if (img.type() == CV_32FC3) {
-                img.convertTo(save_img, CV_8UC3, 255.0);
-            } else if (img.type() == CV_16UC3) {
-                img.convertTo(save_img, CV_8UC3, 255.0 / 65535.0);
+            if (eigen_img.toOpenCV(CV_32FC3).type() == CV_32FC3) {
+                eigen_img.toOpenCV(CV_32FC3).convertTo(save_img, CV_8UC3, 255.0);
+            } else if (eigen_img.toOpenCV(CV_32FC3).type() == CV_16UC3) {
+                eigen_img.toOpenCV(CV_32FC3).convertTo(save_img, CV_8UC3, 255.0 / 65535.0);
             } else {
-                img.convertTo(save_img, CV_8UC3, 255.0 / ((1 << sensor_info_.bit_depth) - 1));
+                eigen_img.toOpenCV(CV_32FC3).convertTo(save_img, CV_8UC3, 255.0 / ((1 << sensor_info_.bit_depth) - 1));
             }
             cv::imwrite(output_path.string(), save_img);
         }
@@ -839,24 +904,24 @@ hdr_isp::EigenImageU32 InfiniteISP::run_pipeline(bool visualize_output, bool sav
     std::cout << "Auto-Exposure" << std::endl;
     if (parm_ae_["is_enable"].as<bool>()) {
         std::cout << "Applying auto exposure..." << std::endl;
-        AutoExposure ae(img, config_["sensor_info"], parm_ae_);
+        AutoExposure ae(eigen_img_3c.toOpenCV(CV_32FC3), config_["sensor_info"], parm_ae_);
         ae_feedback_ = ae.execute();
         
         if (save_intermediate) {
             fs::path output_path = intermediate_dir / "auto_exposure.png";
             // Debug: Print image statistics before saving
-            cv::minMaxLoc(img, &min_val_cv, &max_val_cv);
-            mean_val_cv = cv::mean(img);
-            std::cout << "AE - Mean: " << mean_val_cv << ", Min: " << min_val_cv << ", Max: " << max_val_cv << ", Type: " << img.type() << ", Channels: " << img.channels() << std::endl;
+            cv::minMaxLoc(eigen_img_3c.toOpenCV(CV_32FC3), &min_val_cv, &max_val_cv);
+            mean_val_cv = cv::mean(eigen_img_3c.toOpenCV(CV_32FC3));
+            std::cout << "AE - Mean: " << mean_val_cv << ", Min: " << min_val_cv << ", Max: " << max_val_cv << ", Type: " << eigen_img_3c.toOpenCV(CV_32FC3).type() << ", Channels: " << eigen_img_3c.toOpenCV(CV_32FC3).channels() << std::endl;
             
             // Convert to 8-bit for display
             cv::Mat save_img;
-            if (img.type() == CV_32FC3) {
-                img.convertTo(save_img, CV_8UC3, 255.0);
-            } else if (img.type() == CV_16UC3) {
-                img.convertTo(save_img, CV_8UC3, 255.0 / 65535.0);
+            if (eigen_img_3c.toOpenCV(CV_32FC3).type() == CV_32FC3) {
+                eigen_img_3c.toOpenCV(CV_32FC3).convertTo(save_img, CV_8UC3, 255.0);
+            } else if (eigen_img_3c.toOpenCV(CV_32FC3).type() == CV_16UC3) {
+                eigen_img_3c.toOpenCV(CV_32FC3).convertTo(save_img, CV_8UC3, 255.0 / 65535.0);
             } else {
-                img.convertTo(save_img, CV_8UC3, 255.0 / ((1 << sensor_info_.bit_depth) - 1));
+                eigen_img_3c.toOpenCV(CV_32FC3).convertTo(save_img, CV_8UC3, 255.0 / ((1 << sensor_info_.bit_depth) - 1));
             }
             cv::imwrite(output_path.string(), save_img);
         }
@@ -866,23 +931,26 @@ hdr_isp::EigenImageU32 InfiniteISP::run_pipeline(bool visualize_output, bool sav
     // 16. Color space conversion
     std::cout << "Color space conversion" << std::endl;
     if (parm_csc_["is_enable"].as<bool>()) {
-        ColorSpaceConversion csc(img, config_["sensor_info"], parm_csc_, parm_cse_);
-        img = csc.execute();
+        // Use Eigen-based ColorSpaceConversion module directly
+        ColorSpaceConversion csc(eigen_img_3c, config_["sensor_info"], parm_csc_, parm_cse_);
+        eigen_img_3c = csc.execute_eigen();
+        
         if (save_intermediate) {
             fs::path output_path = intermediate_dir / "color_space_conversion.png";
             // Debug: Print image statistics before saving
-            cv::minMaxLoc(img, &min_val_cv, &max_val_cv);
-            mean_val_cv = cv::mean(img);
-            std::cout << "CSC - Mean: " << mean_val_cv << ", Min: " << min_val_cv << ", Max: " << max_val_cv << ", Type: " << img.type() << ", Channels: " << img.channels() << std::endl;
+            cv::Mat temp_img = eigen_img_3c.toOpenCV(CV_32FC3);
+            cv::minMaxLoc(temp_img, &min_val_cv, &max_val_cv);
+            mean_val_cv = cv::mean(temp_img);
+            std::cout << "CSC - Mean: " << mean_val_cv << ", Min: " << min_val_cv << ", Max: " << max_val_cv << ", Type: " << temp_img.type() << ", Channels: " << temp_img.channels() << std::endl;
             
             // Convert to 8-bit for display
             cv::Mat save_img;
-            if (img.type() == CV_32FC3) {
-                img.convertTo(save_img, CV_8UC3, 255.0);
-            } else if (img.type() == CV_16UC3) {
-                img.convertTo(save_img, CV_8UC3, 255.0 / 65535.0);
+            if (temp_img.type() == CV_32FC3) {
+                temp_img.convertTo(save_img, CV_8UC3, 255.0);
+            } else if (temp_img.type() == CV_16UC3) {
+                temp_img.convertTo(save_img, CV_8UC3, 255.0 / 65535.0);
             } else {
-                img.convertTo(save_img, CV_8UC3, 255.0 / ((1 << sensor_info_.bit_depth) - 1));
+                temp_img.convertTo(save_img, CV_8UC3, 255.0 / ((1 << sensor_info_.bit_depth) - 1));
             }
             cv::imwrite(output_path.string(), save_img);
         }
@@ -892,23 +960,26 @@ hdr_isp::EigenImageU32 InfiniteISP::run_pipeline(bool visualize_output, bool sav
     // 17. Local Dynamic Contrast Improvement
     std::cout << "Local Dynamic Contrast Improvement" << std::endl;
     if (parm_ldci_["is_enable"].as<bool>()) {
-        LDCI ldci(img, config_["platform"], config_["sensor_info"], parm_ldci_);
-        img = ldci.execute();
+        // Use Eigen-based LDCI module directly
+        LDCI ldci(eigen_img_3c, config_["platform"], config_["sensor_info"], parm_ldci_);
+        eigen_img_3c = ldci.execute_eigen();
+        
         if (save_intermediate) {
             fs::path output_path = intermediate_dir / "ldci.png";
             // Debug: Print image statistics before saving
-            cv::minMaxLoc(img, &min_val_cv, &max_val_cv);
-            mean_val_cv = cv::mean(img);
-            std::cout << "LDCI - Mean: " << mean_val_cv << ", Min: " << min_val_cv << ", Max: " << max_val_cv << ", Type: " << img.type() << ", Channels: " << img.channels() << std::endl;
+            cv::Mat temp_img = eigen_img_3c.toOpenCV(CV_32FC3);
+            cv::minMaxLoc(temp_img, &min_val_cv, &max_val_cv);
+            mean_val_cv = cv::mean(temp_img);
+            std::cout << "LDCI - Mean: " << mean_val_cv << ", Min: " << min_val_cv << ", Max: " << max_val_cv << ", Type: " << temp_img.type() << ", Channels: " << temp_img.channels() << std::endl;
             
             // Convert to 8-bit for display
             cv::Mat save_img;
-            if (img.type() == CV_32FC3) {
-                img.convertTo(save_img, CV_8UC3, 255.0);
-            } else if (img.type() == CV_16UC3) {
-                img.convertTo(save_img, CV_8UC3, 255.0 / 65535.0);
+            if (temp_img.type() == CV_32FC3) {
+                temp_img.convertTo(save_img, CV_8UC3, 255.0);
+            } else if (temp_img.type() == CV_16UC3) {
+                temp_img.convertTo(save_img, CV_8UC3, 255.0 / 65535.0);
             } else {
-                img.convertTo(save_img, CV_8UC3, 255.0 / ((1 << sensor_info_.bit_depth) - 1));
+                temp_img.convertTo(save_img, CV_8UC3, 255.0 / ((1 << sensor_info_.bit_depth) - 1));
             }
             cv::imwrite(output_path.string(), save_img);
         }
@@ -919,38 +990,34 @@ hdr_isp::EigenImageU32 InfiniteISP::run_pipeline(bool visualize_output, bool sav
     std::cout << "Sharpening" << std::endl;
     if (parm_sha_["is_enable"].as<bool>()) {
         std::cout << "Applying sharpening..." << std::endl;
-        
         try {
             // Get conv_std with default value if not defined
             std::string conv_std_value = "709"; // Default value
             if (parm_csc_.IsDefined() && parm_csc_["conv_std"].IsDefined()) {
                 conv_std_value = parm_csc_["conv_std"].as<std::string>();
             }
-            
-            Sharpen sharpen(img, config_["platform"], config_["sensor_info"], parm_sha_, conv_std_value);
-            
-            img = sharpen.execute();
-            
+            // Use Eigen-based Sharpen module directly
+            Sharpen sharpen(eigen_img_3c, config_["platform"], config_["sensor_info"], parm_sha_, conv_std_value);
+            eigen_img_3c = sharpen.execute_eigen();
         } catch (const std::exception& e) {
             std::cerr << "Exception during Sharpen creation/execution: " << e.what() << std::endl;
             throw;
         }
-        
         if (save_intermediate) {
             fs::path output_path = intermediate_dir / "sharpen.png";
             // Debug: Print image statistics before saving
-            cv::minMaxLoc(img, &min_val_cv, &max_val_cv);
-            mean_val_cv = cv::mean(img);
-            std::cout << "Sharpen - Mean: " << mean_val_cv << ", Min: " << min_val_cv << ", Max: " << max_val_cv << ", Type: " << img.type() << ", Channels: " << img.channels() << std::endl;
-            
+            cv::Mat temp_img = eigen_img_3c.toOpenCV(CV_32FC3);
+            cv::minMaxLoc(temp_img, &min_val_cv, &max_val_cv);
+            mean_val_cv = cv::mean(temp_img);
+            std::cout << "Sharpen - Mean: " << mean_val_cv << ", Min: " << min_val_cv << ", Max: " << max_val_cv << ", Type: " << temp_img.type() << ", Channels: " << temp_img.channels() << std::endl;
             // Convert to 8-bit for display
             cv::Mat save_img;
-            if (img.type() == CV_32FC3) {
-                img.convertTo(save_img, CV_8UC3, 255.0);
-            } else if (img.type() == CV_16UC3) {
-                img.convertTo(save_img, CV_8UC3, 255.0 / 65535.0);
+            if (temp_img.type() == CV_32FC3) {
+                temp_img.convertTo(save_img, CV_8UC3, 255.0);
+            } else if (temp_img.type() == CV_16UC3) {
+                temp_img.convertTo(save_img, CV_8UC3, 255.0 / 65535.0);
             } else {
-                img.convertTo(save_img, CV_8UC3, 255.0 / ((1 << sensor_info_.bit_depth) - 1));
+                temp_img.convertTo(save_img, CV_8UC3, 255.0 / ((1 << sensor_info_.bit_depth) - 1));
             }
             cv::imwrite(output_path.string(), save_img);
         }
@@ -959,25 +1026,26 @@ hdr_isp::EigenImageU32 InfiniteISP::run_pipeline(bool visualize_output, bool sav
     // =====================================================================
     // 19. 2d noise reduction
     std::cout << "2d noise reduction" << std::endl;
-    
     if (parm_2dn_["is_enable"].as<bool>()) {
-        NoiseReduction2D nr2d(img, config_["platform"], config_["sensor_info"], parm_2dn_);
-        img = nr2d.execute();
+        // Use Eigen-based NoiseReduction2D module directly
+        NoiseReduction2D nr2d(eigen_img_3c, config_["platform"], config_["sensor_info"], parm_2dn_);
+        eigen_img_3c = nr2d.execute_eigen();
+        
         if (save_intermediate) {
             fs::path output_path = intermediate_dir / "2d_noise_reduction.png";
             // Debug: Print image statistics before saving
-            cv::minMaxLoc(img, &min_val_cv, &max_val_cv);
-            mean_val_cv = cv::mean(img);
-            std::cout << "2DNR - Mean: " << mean_val_cv << ", Min: " << min_val_cv << ", Max: " << max_val_cv << ", Type: " << img.type() << ", Channels: " << img.channels() << std::endl;
-            
+            cv::Mat temp_img = eigen_img_3c.toOpenCV(CV_32FC3);
+            cv::minMaxLoc(temp_img, &min_val_cv, &max_val_cv);
+            mean_val_cv = cv::mean(temp_img);
+            std::cout << "2DNR - Mean: " << mean_val_cv << ", Min: " << min_val_cv << ", Max: " << max_val_cv << ", Type: " << temp_img.type() << ", Channels: " << temp_img.channels() << std::endl;
             // Convert to 8-bit for display
             cv::Mat save_img;
-            if (img.type() == CV_32FC3) {
-                img.convertTo(save_img, CV_8UC3, 255.0);
-            } else if (img.type() == CV_16UC3) {
-                img.convertTo(save_img, CV_8UC3, 255.0 / 65535.0);
+            if (temp_img.type() == CV_32FC3) {
+                temp_img.convertTo(save_img, CV_8UC3, 255.0);
+            } else if (temp_img.type() == CV_16UC3) {
+                temp_img.convertTo(save_img, CV_8UC3, 255.0 / 65535.0);
             } else {
-                img.convertTo(save_img, CV_8UC3, 255.0 / ((1 << sensor_info_.bit_depth) - 1));
+                temp_img.convertTo(save_img, CV_8UC3, 255.0 / ((1 << sensor_info_.bit_depth) - 1));
             }
             cv::imwrite(output_path.string(), save_img);
         }
@@ -987,23 +1055,25 @@ hdr_isp::EigenImageU32 InfiniteISP::run_pipeline(bool visualize_output, bool sav
     // 20. RGB conversion
     std::cout << "RGB conversion" << std::endl;
     if (parm_rgb_["is_enable"].as<bool>()) {
-        RGBConversion rgb_conv(img, config_["platform"], config_["sensor_info"], parm_rgb_, parm_csc_);
-        img = rgb_conv.execute();
+        // Use Eigen-based RGBConversion module directly
+        RGBConversion rgb_conv(eigen_img_3c, config_["platform"], config_["sensor_info"], parm_rgb_, parm_csc_);
+        eigen_img_3c = rgb_conv.execute_eigen();
+        
         if (save_intermediate) {
             fs::path output_path = intermediate_dir / "rgb_conversion.png";
             // Debug: Print image statistics before saving
-            cv::minMaxLoc(img, &min_val_cv, &max_val_cv);
-            mean_val_cv = cv::mean(img);
-            std::cout << "RGB - Mean: " << mean_val_cv << ", Min: " << min_val_cv << ", Max: " << max_val_cv << ", Type: " << img.type() << ", Channels: " << img.channels() << std::endl;
-            
+            cv::Mat temp_img = eigen_img_3c.toOpenCV(CV_32FC3);
+            cv::minMaxLoc(temp_img, &min_val_cv, &max_val_cv);
+            mean_val_cv = cv::mean(temp_img);
+            std::cout << "RGB - Mean: " << mean_val_cv << ", Min: " << min_val_cv << ", Max: " << max_val_cv << ", Type: " << temp_img.type() << ", Channels: " << temp_img.channels() << std::endl;
             // Convert to 8-bit for display
             cv::Mat save_img;
-            if (img.type() == CV_32FC3) {
-                img.convertTo(save_img, CV_8UC3, 255.0);
-            } else if (img.type() == CV_16UC3) {
-                img.convertTo(save_img, CV_8UC3, 255.0 / 65535.0);
+            if (temp_img.type() == CV_32FC3) {
+                temp_img.convertTo(save_img, CV_8UC3, 255.0);
+            } else if (temp_img.type() == CV_16UC3) {
+                temp_img.convertTo(save_img, CV_8UC3, 255.0 / 65535.0);
             } else {
-                img.convertTo(save_img, CV_8UC3, 255.0 / ((1 << sensor_info_.bit_depth) - 1));
+                temp_img.convertTo(save_img, CV_8UC3, 255.0 / ((1 << sensor_info_.bit_depth) - 1));
             }
             cv::imwrite(output_path.string(), save_img);
         }
@@ -1022,8 +1092,9 @@ hdr_isp::EigenImageU32 InfiniteISP::run_pipeline(bool visualize_output, bool sav
                 conv_std_value = parm_csc_["conv_std"].as<int>();
             }
             
-            Scale scale(img, config_["platform"], config_["sensor_info"], parm_sca_, conv_std_value);
-            img = scale.execute();
+            // Use Eigen-based Scale module directly
+            Scale scale(eigen_img_3c, config_["platform"], config_["sensor_info"], parm_sca_, conv_std_value);
+            eigen_img_3c = scale.execute_eigen();
             
         } catch (const std::exception& e) {
             std::cerr << "Exception during Scale creation/execution: " << e.what() << std::endl;
@@ -1033,18 +1104,19 @@ hdr_isp::EigenImageU32 InfiniteISP::run_pipeline(bool visualize_output, bool sav
         if (save_intermediate) {
             fs::path output_path = intermediate_dir / "scale.png";
             // Debug: Print image statistics before saving
-            cv::minMaxLoc(img, &min_val_cv, &max_val_cv);
-            mean_val_cv = cv::mean(img);
-            std::cout << "Scale - Mean: " << mean_val_cv << ", Min: " << min_val_cv << ", Max: " << max_val_cv << ", Type: " << img.type() << ", Channels: " << img.channels() << std::endl;
+            cv::Mat temp_img = eigen_img_3c.toOpenCV(CV_32FC3);
+            cv::minMaxLoc(temp_img, &min_val_cv, &max_val_cv);
+            mean_val_cv = cv::mean(temp_img);
+            std::cout << "Scale - Mean: " << mean_val_cv << ", Min: " << min_val_cv << ", Max: " << max_val_cv << ", Type: " << temp_img.type() << ", Channels: " << temp_img.channels() << std::endl;
             
             // Convert to 8-bit for display
             cv::Mat save_img;
-            if (img.type() == CV_32FC3) {
-                img.convertTo(save_img, CV_8UC3, 255.0);
-            } else if (img.type() == CV_16UC3) {
-                img.convertTo(save_img, CV_8UC3, 255.0 / 65535.0);
+            if (temp_img.type() == CV_32FC3) {
+                temp_img.convertTo(save_img, CV_8UC3, 255.0);
+            } else if (temp_img.type() == CV_16UC3) {
+                temp_img.convertTo(save_img, CV_8UC3, 255.0 / 65535.0);
             } else {
-                img.convertTo(save_img, CV_8UC3, 255.0 / ((1 << sensor_info_.bit_depth) - 1));
+                temp_img.convertTo(save_img, CV_8UC3, 255.0 / ((1 << sensor_info_.bit_depth) - 1));
             }
             cv::imwrite(output_path.string(), save_img);
         }
@@ -1055,22 +1127,27 @@ hdr_isp::EigenImageU32 InfiniteISP::run_pipeline(bool visualize_output, bool sav
     std::cout << "YUV saving format 444, 422 etc" << std::endl;
     if (parm_yuv_["is_enable"].as<bool>()) {
         std::cout << "Applying YUV conversion format..." << std::endl;
-        YUVConvFormat yuv_conv(img, config_["platform"], config_["sensor_info"], parm_yuv_);
-        img = yuv_conv.execute();
+        // Convert Eigen to OpenCV for YUVConvFormat module
+        cv::Mat temp_img = eigen_img_3c.toOpenCV(CV_32FC3);
+        YUVConvFormat yuv_conv(temp_img, config_["platform"], config_["sensor_info"], parm_yuv_);
+        temp_img = yuv_conv.execute();
+        // Convert back to Eigen
+        eigen_img_3c = hdr_isp::EigenImage3C::fromOpenCV(temp_img);
+        
         if (save_intermediate) {
             // Debug: Print image statistics before saving
-            cv::minMaxLoc(img, &min_val_cv, &max_val_cv);
-            mean_val_cv = cv::mean(img);
-            std::cout << "YUV - Mean: " << mean_val_cv << ", Min: " << min_val_cv << ", Max: " << max_val_cv << ", Type: " << img.type() << ", Channels: " << img.channels() << std::endl;
+            cv::minMaxLoc(temp_img, &min_val_cv, &max_val_cv);
+            mean_val_cv = cv::mean(temp_img);
+            std::cout << "YUV - Mean: " << mean_val_cv << ", Min: " << min_val_cv << ", Max: " << max_val_cv << ", Type: " << temp_img.type() << ", Channels: " << temp_img.channels() << std::endl;
             
             // Convert to 8-bit for display
             cv::Mat save_img;
-            if (img.type() == CV_32FC3) {
-                img.convertTo(save_img, CV_8UC3, 255.0);
-            } else if (img.type() == CV_16UC3) {
-                img.convertTo(save_img, CV_8UC3, 255.0 / 65535.0);
+            if (temp_img.type() == CV_32FC3) {
+                temp_img.convertTo(save_img, CV_8UC3, 255.0);
+            } else if (temp_img.type() == CV_16UC3) {
+                temp_img.convertTo(save_img, CV_8UC3, 255.0 / 65535.0);
             } else {
-                img.convertTo(save_img, CV_8UC3, 255.0 / ((1 << sensor_info_.bit_depth) - 1));
+                temp_img.convertTo(save_img, CV_8UC3, 255.0 / ((1 << sensor_info_.bit_depth) - 1));
             }
             std::string output_path = "yuv_conversion_format.png";
             cv::imwrite(output_path, save_img);
@@ -1092,7 +1169,7 @@ void InfiniteISP::load_3a_statistics(bool awb_on, bool ae_on) {
     }
 }
 
-cv::Mat InfiniteISP::execute_with_3a_statistics(bool save_intermediate) {
+hdr_isp::EigenImageU32 InfiniteISP::execute_with_3a_statistics(bool save_intermediate) {
     int max_dg = static_cast<int>(parm_dga_["gain_array"].size());
 
     run_pipeline(false, save_intermediate);
@@ -1107,7 +1184,7 @@ cv::Mat InfiniteISP::execute_with_3a_statistics(bool save_intermediate) {
     }
 
     hdr_isp::EigenImageU32 final_eigen = run_pipeline(true, save_intermediate);
-    return final_eigen.toOpenCV(CV_32S);
+    return final_eigen;
 }
 
 void InfiniteISP::execute(const std::string& img_path, bool save_intermediate) {
@@ -1139,7 +1216,8 @@ void InfiniteISP::execute(const std::string& img_path, bool save_intermediate) {
         final_img = final_eigen.toOpenCV(CV_32S);
     }
     else {
-        final_img = execute_with_3a_statistics(save_intermediate);
+        hdr_isp::EigenImageU32 final_eigen = execute_with_3a_statistics(save_intermediate);
+        final_img = final_eigen.toOpenCV(CV_32S);
     }
 
     // Save final output

@@ -21,8 +21,26 @@ ColorSpaceConversion::ColorSpaceConversion(const cv::Mat& img, const YAML::Node&
     , conv_std_(parm_csc["conv_standard"].as<int>())
     , is_save_(parm_csc["is_save"].as<bool>())
     , use_eigen_(true) // Use Eigen by default
+    , has_eigen_input_(false)
 {
     printImageStats(raw_, "Input raw image");
+}
+
+ColorSpaceConversion::ColorSpaceConversion(const hdr_isp::EigenImage3C& img, const YAML::Node& sensor_info, 
+                                         const YAML::Node& parm_csc, const YAML::Node& parm_cse)
+    : eigen_raw_(img)
+    , sensor_info_(sensor_info)
+    , parm_csc_(parm_csc)
+    , parm_cse_(parm_cse)
+    , bit_depth_(sensor_info["output_bit_depth"].as<int>())
+    , conv_std_(parm_csc["conv_standard"].as<int>())
+    , is_save_(parm_csc["is_save"].as<bool>())
+    , use_eigen_(true) // Use Eigen by default
+    , has_eigen_input_(true)
+{
+    // Convert to OpenCV for statistics printing
+    cv::Mat temp_img = eigen_raw_.toOpenCV(CV_32FC3);
+    printImageStats(temp_img, "Input Eigen image");
 }
 
 cv::Mat ColorSpaceConversion::execute() {
@@ -30,8 +48,8 @@ cv::Mat ColorSpaceConversion::execute() {
     
     cv::Mat result;
     if (use_eigen_) {
-        hdr_isp::EigenImage eigen_result = rgb_to_yuv_8bit_eigen();
-        result = hdr_isp::eigen_to_opencv(eigen_result);
+        hdr_isp::EigenImage3C eigen_result = rgb_to_yuv_8bit_eigen();
+        result = eigen_result.toOpenCV(CV_8UC3);
     } else {
         result = rgb_to_yuv_8bit();
     }
@@ -39,6 +57,18 @@ cv::Mat ColorSpaceConversion::execute() {
     auto end = std::chrono::high_resolution_clock::now();
     std::chrono::duration<double> duration = end - start;
     std::cout << "Color Space Conversion execution time: " << duration.count() << " seconds" << std::endl;
+
+    return result;
+}
+
+hdr_isp::EigenImage3C ColorSpaceConversion::execute_eigen() {
+    auto start = std::chrono::high_resolution_clock::now();
+    
+    hdr_isp::EigenImage3C result = rgb_to_yuv_8bit_eigen();
+    
+    auto end = std::chrono::high_resolution_clock::now();
+    std::chrono::duration<double> duration = end - start;
+    std::cout << "Color Space Conversion Eigen execution time: " << duration.count() << " seconds" << std::endl;
 
     return result;
 }
@@ -135,9 +165,14 @@ cv::Mat ColorSpaceConversion::rgb_to_yuv_8bit() {
     return result;
 }
 
-hdr_isp::EigenImage ColorSpaceConversion::rgb_to_yuv_8bit_eigen() {
-    // Convert to Eigen 3-channel image
-    hdr_isp::EigenImage3C eigen_raw = hdr_isp::EigenImage3C::fromOpenCV(raw_);
+hdr_isp::EigenImage3C ColorSpaceConversion::rgb_to_yuv_8bit_eigen() {
+    // Use the appropriate input (Eigen or converted from OpenCV)
+    hdr_isp::EigenImage3C eigen_raw;
+    if (has_eigen_input_) {
+        eigen_raw = eigen_raw_;
+    } else {
+        eigen_raw = hdr_isp::EigenImage3C::fromOpenCV(raw_);
+    }
     
     // Set up conversion matrix based on standard
     Eigen::Matrix3f rgb2yuv_eigen;
@@ -189,10 +224,5 @@ hdr_isp::EigenImage ColorSpaceConversion::rgb_to_yuv_8bit_eigen() {
     yuv_3c.b() = hdr_isp::EigenImage(yuv_3c.b().data().array().round().matrix());
     yuv_3c = yuv_3c.clip(0.0f, 255.0f);
     
-    // Convert back to OpenCV and then to single channel for return
-    cv::Mat yuv_cv = yuv_3c.toOpenCV(CV_8UC3);
-    cv::Mat yuv_single;
-    cv::cvtColor(yuv_cv, yuv_single, cv::COLOR_BGR2GRAY);
-    
-    return hdr_isp::opencv_to_eigen(yuv_single);
+    return yuv_3c;
 } 

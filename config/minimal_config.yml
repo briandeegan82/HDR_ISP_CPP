@@ -5,6 +5,17 @@ platform:
   render_3a: false
   save_format: "both"
 
+# Global fixed-point arithmetic configuration
+fixed_point_config:
+  # Precision mode: "8bit" (fast) or "16bit" (precise)
+  precision_mode: "8bit"
+  # Fractional bits for 8-bit mode (4-7 bits recommended)
+  fractional_bits_8bit: 6
+  # Fractional bits for 16-bit mode (8-14 bits recommended)  
+  fractional_bits_16bit: 12
+  # Enable fixed-point arithmetic for all modules after demosaic
+  enable_fixed_point: true
+
 sensor_info:
   bayer_pattern: "rggb"
   range: 4095
@@ -42,6 +53,9 @@ color_correction_matrix:
   corrected_green: [-0.408, 1.563, -0.082]
   corrected_blue: [-0.055, -1.641, 2.695]
   is_save: false
+  # Module-specific fixed-point override (optional)
+  # use_fixed_point: true
+  # fixed_point_bits: 8
 
 gamma_correction:
   is_enable: true

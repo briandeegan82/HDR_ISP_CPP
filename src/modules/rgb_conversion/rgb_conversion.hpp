@@ -9,15 +9,20 @@ class RGBConversion {
 public:
     RGBConversion(cv::Mat& img, const YAML::Node& platform, const YAML::Node& sensor_info, 
                  const YAML::Node& parm_rgb, const YAML::Node& parm_csc);
+    RGBConversion(const hdr_isp::EigenImage3C& img, const YAML::Node& platform, const YAML::Node& sensor_info, 
+                 const YAML::Node& parm_rgb, const YAML::Node& parm_csc);
 
     cv::Mat execute();
+    hdr_isp::EigenImage3C execute_eigen();
 
 private:
     cv::Mat yuv_to_rgb_opencv();
     hdr_isp::EigenImage yuv_to_rgb_eigen();
+    hdr_isp::EigenImage3C yuv_to_rgb_eigen_3c();
     void save();
 
     cv::Mat img_;
+    hdr_isp::EigenImage3C eigen_img_;
     const YAML::Node& platform_;
     const YAML::Node& sensor_info_;
     const YAML::Node& parm_rgb_;
@@ -31,4 +36,5 @@ private:
     cv::Mat yuv2rgb_mat_;
     cv::Vec3i offset_;
     bool use_eigen_;
+    bool has_eigen_input_;
 }; 

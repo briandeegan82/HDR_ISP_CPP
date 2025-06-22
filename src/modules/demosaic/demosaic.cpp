@@ -39,6 +39,33 @@ hdr_isp::EigenImage3C BilinearDemosaic::execute() {
     return result;
 }
 
+hdr_isp::EigenImage3CFixed BilinearDemosaic::execute_fixed(int fractional_bits) {
+    // Convert input to float and normalize to [0, 1] range
+    uint32_t max_val = raw_in_.max();
+    hdr_isp::EigenImage normalized = hdr_isp::EigenImage(rows_, cols_);
+    for (int i = 0; i < rows_; i++) {
+        for (int j = 0; j < cols_; j++) {
+            normalized.data()(i, j) = static_cast<float>(raw_in_.data()(i, j)) / static_cast<float>(max_val);
+        }
+    }
+
+    // Interpolate each channel
+    hdr_isp::EigenImage r_channel = interpolate_red();
+    hdr_isp::EigenImage g_channel = interpolate_green();
+    hdr_isp::EigenImage b_channel = interpolate_blue();
+
+    // Create 3-channel floating-point output first
+    hdr_isp::EigenImage3C float_result(rows_, cols_);
+    float_result.r() = r_channel;
+    float_result.g() = g_channel;
+    float_result.b() = b_channel;
+
+    // Convert to fixed-point
+    hdr_isp::EigenImage3CFixed result = hdr_isp::EigenImage3CFixed::fromEigenImage3C(float_result, fractional_bits);
+
+    return result;
+}
+
 std::array<hdr_isp::EigenImage, 3> BilinearDemosaic::create_bayer_masks() {
     std::array<hdr_isp::EigenImage, 3> masks;
     for (auto& mask : masks) {
@@ -350,6 +377,20 @@ Demosaic::Demosaic(const hdr_isp::EigenImageU32& img, const std::string& bayer_p
     , is_save_(is_save)
     , is_debug_(false)
     , is_enable_(true)
+    , fp_config_(YAML::Node())  // Default empty config
+    , use_fixed_point_(false)
+{
+}
+
+Demosaic::Demosaic(const hdr_isp::EigenImageU32& img, const std::string& bayer_pattern, const hdr_isp::FixedPointConfig& fp_config, int bit_depth, bool is_save)
+    : img_(img)
+    , bayer_pattern_(bayer_pattern)
+    , bit_depth_(bit_depth)
+    , is_save_(is_save)
+    , is_debug_(false)
+    , is_enable_(true)
+    , fp_config_(fp_config)
+    , use_fixed_point_(fp_config.isEnabled())
 {
 }
 
@@ -390,6 +431,45 @@ hdr_isp::EigenImage3C Demosaic::execute() {
     return hdr_isp::EigenImage3C(img_.rows(), img_.cols());
 }
 
+hdr_isp::EigenImage3CFixed Demosaic::execute_fixed() {
+    if (is_enable_) {
+        auto start = std::chrono::high_resolution_clock::now();
+        
+        // Convert to uint8 and scale
+        uint32_t max_val = img_.max();
+        hdr_isp::EigenImageU32 scaled_img = img_.clone();
+        
+        // Scale to 0-255 range
+        for (int i = 0; i < scaled_img.rows(); i++) {
+            for (int j = 0; j < scaled_img.cols(); j++) {
+                scaled_img.data()(i, j) = static_cast<uint32_t>((static_cast<float>(img_.data()(i, j)) / static_cast<float>(max_val)) * 255.0f);
+            }
+        }
+        
+        // Apply bilinear demosaic with fixed-point output
+        BilinearDemosaic demosaic(scaled_img, bayer_pattern_);
+        int fractional_bits = fp_config_.getFractionalBits();
+        hdr_isp::EigenImage3CFixed result = demosaic.execute_fixed(fractional_bits);
+        
+        auto end = std::chrono::high_resolution_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+        
+        if (is_debug_) {
+            std::cout << "  Fixed-point execution time: " << duration.count() / 1000.0 << "s" << std::endl;
+            std::cout << "  Fractional bits: " << fractional_bits << std::endl;
+        }
+        
+        if (is_save_) {
+            save_fixed(result);
+        }
+        
+        return result;
+    }
+    
+    // Return empty result if not enabled
+    return hdr_isp::EigenImage3CFixed(img_.rows(), img_.cols());
+}
+
 void Demosaic::save(const hdr_isp::EigenImage3C& result) {
     if (is_save_) {
         fs::path output_dir = "out_frames";
@@ -398,6 +478,23 @@ void Demosaic::save(const hdr_isp::EigenImage3C& result) {
         
         // Convert to OpenCV for saving
         cv::Mat save_img = result.toOpenCV(CV_32FC3);
+        
+        // Convert to 8-bit for saving
+        cv::Mat save_img_8u;
+        save_img.convertTo(save_img_8u, CV_8UC3, 255.0);
+        cv::imwrite(output_path.string(), save_img_8u);
+    }
+}
+
+void Demosaic::save_fixed(const hdr_isp::EigenImage3CFixed& result) {
+    if (is_save_) {
+        fs::path output_dir = "out_frames";
+        fs::create_directories(output_dir);
+        fs::path output_path = output_dir / ("Out_demosaic_fixed_" + bayer_pattern_ + ".png");
+        
+        // Convert to OpenCV for saving
+        int fractional_bits = fp_config_.getFractionalBits();
+        cv::Mat save_img = result.toOpenCV(fractional_bits, CV_32FC3);
         
         // Convert to 8-bit for saving
         cv::Mat save_img_8u;

@@ -17,6 +17,23 @@ Scale::Scale(cv::Mat& img, const YAML::Node& platform, const YAML::Node& sensor_
     , is_save_(parm_sca_["is_save"].as<bool>())
     , conv_std_(conv_std)
     , use_eigen_(true) // Use Eigen by default
+    , has_eigen_input_(false)
+{
+    get_scaling_params();
+}
+
+Scale::Scale(const hdr_isp::EigenImage3C& img, const YAML::Node& platform, const YAML::Node& sensor_info,
+            const YAML::Node& parm_sca, int conv_std)
+    : img_(cv::Mat()) // Dummy initialization for OpenCV reference
+    , eigen_img_(img)
+    , platform_(platform)
+    , sensor_info_(sensor_info)
+    , parm_sca_(YAML::Clone(parm_sca))
+    , enable_(parm_sca_["is_enable"].as<bool>())
+    , is_save_(parm_sca_["is_save"].as<bool>())
+    , conv_std_(conv_std)
+    , use_eigen_(true) // Use Eigen by default
+    , has_eigen_input_(true)
 {
     get_scaling_params();
 }
@@ -186,4 +203,68 @@ cv::Mat Scale::execute() {
     }
 
     return img_;
+}
+
+hdr_isp::EigenImage3C Scale::execute_eigen() {
+    if (enable_) {
+        auto start = std::chrono::high_resolution_clock::now();
+        
+        if (has_eigen_input_) {
+            eigen_img_ = apply_scaling_eigen_3c();
+        } else {
+            // Convert OpenCV to Eigen, process, then convert back
+            hdr_isp::EigenImage3C temp_eigen = hdr_isp::EigenImage3C::fromOpenCV(img_);
+            eigen_img_ = apply_scaling_eigen_3c();
+        }
+        
+        auto end = std::chrono::high_resolution_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+        
+        if (is_debug_) {
+            std::cout << "  Execution time: " << duration.count() / 1000.0 << "s" << std::endl;
+        }
+    }
+
+    return eigen_img_;
+}
+
+hdr_isp::EigenImage3C Scale::apply_scaling_eigen_3c() {
+    // Check if no change in size
+    if (old_size_ == new_size_) {
+        if (is_debug_) {
+            std::cout << "   - Output size is the same as input size." << std::endl;
+        }
+        return eigen_img_;
+    }
+
+    int old_rows = eigen_img_.rows();
+    int old_cols = eigen_img_.cols();
+    int new_rows = new_size_.first;
+    int new_cols = new_size_.second;
+
+    // Create scaled images for each channel
+    hdr_isp::EigenImage scaled_r = hdr_isp::EigenImage::Zero(new_rows, new_cols);
+    hdr_isp::EigenImage scaled_g = hdr_isp::EigenImage::Zero(new_rows, new_cols);
+    hdr_isp::EigenImage scaled_b = hdr_isp::EigenImage::Zero(new_rows, new_cols);
+
+    // Simple nearest neighbor scaling for Eigen implementation
+    float scale_x = static_cast<float>(old_cols) / new_cols;
+    float scale_y = static_cast<float>(old_rows) / new_rows;
+
+    for (int i = 0; i < new_rows; ++i) {
+        for (int j = 0; j < new_cols; ++j) {
+            int src_i = static_cast<int>(i * scale_y);
+            int src_j = static_cast<int>(j * scale_x);
+            
+            // Clamp to valid range
+            src_i = std::min(src_i, old_rows - 1);
+            src_j = std::min(src_j, old_cols - 1);
+            
+            scaled_r(i, j) = eigen_img_.r()(src_i, src_j);
+            scaled_g(i, j) = eigen_img_.g()(src_i, src_j);
+            scaled_b(i, j) = eigen_img_.b()(src_i, src_j);
+        }
+    }
+
+    return hdr_isp::EigenImage3C(scaled_r, scaled_g, scaled_b);
 } 

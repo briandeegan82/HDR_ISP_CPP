@@ -9,8 +9,11 @@ class HDRDurandToneMapping {
 public:
     HDRDurandToneMapping(const cv::Mat& img, const YAML::Node& platform,
                          const YAML::Node& sensor_info, const YAML::Node& params);
+    HDRDurandToneMapping(const hdr_isp::EigenImageU32& img, const YAML::Node& platform,
+                         const YAML::Node& sensor_info, const YAML::Node& params);
 
     cv::Mat execute();
+    hdr_isp::EigenImageU32 execute_eigen();
 
 private:
     cv::Mat normalize(const cv::Mat& image);
@@ -24,6 +27,7 @@ private:
     void save();
 
     cv::Mat img_;
+    hdr_isp::EigenImageU32 eigen_img_;
     YAML::Node platform_;
     YAML::Node sensor_info_;
     YAML::Node params_;
@@ -36,4 +40,5 @@ private:
     int downsample_factor_;
     int output_bit_depth_;
     bool use_eigen_; // Use Eigen by default
+    bool has_eigen_input_; // Flag to indicate if input is Eigen
 }; 

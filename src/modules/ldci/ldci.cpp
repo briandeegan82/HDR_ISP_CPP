@@ -19,6 +19,24 @@ LDCI::LDCI(const cv::Mat& img, const YAML::Node& platform,
     , window_size_(params["wind"].as<int>())
     , output_bit_depth_(sensor_info["output_bit_depth"].as<int>())
     , use_eigen_(true) // Use Eigen by default
+    , has_eigen_input_(false)
+{
+}
+
+LDCI::LDCI(const hdr_isp::EigenImage3C& img, const YAML::Node& platform,
+           const YAML::Node& sensor_info, const YAML::Node& params)
+    : eigen_img_(img)
+    , platform_(platform)
+    , sensor_info_(sensor_info)
+    , params_(params)
+    , is_enable_(params["is_enable"].as<bool>())
+    , is_save_(params["is_save"].as<bool>())
+    , is_debug_(params["is_debug"].as<bool>())
+    , strength_(params["clip_limit"].as<float>())
+    , window_size_(params["wind"].as<int>())
+    , output_bit_depth_(sensor_info["output_bit_depth"].as<int>())
+    , use_eigen_(true) // Use Eigen by default
+    , has_eigen_input_(true)
 {
 }
 
@@ -154,25 +172,46 @@ cv::Mat LDCI::apply_ldci_opencv() {
     return result;
 }
 
-hdr_isp::EigenImage LDCI::apply_ldci_eigen() {
-    // Convert to Eigen
-    hdr_isp::EigenImage eigen_img = hdr_isp::opencv_to_eigen(img_);
+hdr_isp::EigenImage3C LDCI::apply_ldci_eigen() {
+    // Use the appropriate input (Eigen or converted from OpenCV)
+    hdr_isp::EigenImage3C eigen_img;
+    if (has_eigen_input_) {
+        eigen_img = eigen_img_;
+    } else {
+        eigen_img = hdr_isp::EigenImage3C::fromOpenCV(img_);
+    }
     
-    // Calculate local contrast
-    hdr_isp::EigenImage local_contrast = calculate_local_contrast_eigen(eigen_img);
+    // Process each channel separately
+    hdr_isp::EigenImage3C result;
+    result.r() = hdr_isp::EigenImage::Zero(eigen_img.rows(), eigen_img.cols());
+    result.g() = hdr_isp::EigenImage::Zero(eigen_img.rows(), eigen_img.cols());
+    result.b() = hdr_isp::EigenImage::Zero(eigen_img.rows(), eigen_img.cols());
     
-    // Enhance contrast
-    hdr_isp::EigenImage enhanced = enhance_contrast_eigen(eigen_img, local_contrast);
+    // Process R channel
+    hdr_isp::EigenImage local_contrast_r = calculate_local_contrast_eigen(eigen_img.r());
+    result.r() = enhance_contrast_eigen(eigen_img.r(), local_contrast_r);
+    
+    // Process G channel
+    hdr_isp::EigenImage local_contrast_g = calculate_local_contrast_eigen(eigen_img.g());
+    result.g() = enhance_contrast_eigen(eigen_img.g(), local_contrast_g);
+    
+    // Process B channel
+    hdr_isp::EigenImage local_contrast_b = calculate_local_contrast_eigen(eigen_img.b());
+    result.b() = enhance_contrast_eigen(eigen_img.b(), local_contrast_b);
     
     // Apply bit depth conversion
     if (output_bit_depth_ == 8) {
-        enhanced = enhanced.cwiseMax(0.0f).cwiseMin(255.0f);
+        result.r() = result.r().cwiseMax(0.0f).cwiseMin(255.0f);
+        result.g() = result.g().cwiseMax(0.0f).cwiseMin(255.0f);
+        result.b() = result.b().cwiseMax(0.0f).cwiseMin(255.0f);
     } else if (output_bit_depth_ == 16) {
-        enhanced = enhanced.cwiseMax(0.0f).cwiseMin(65535.0f);
+        result.r() = result.r().cwiseMax(0.0f).cwiseMin(65535.0f);
+        result.g() = result.g().cwiseMax(0.0f).cwiseMin(65535.0f);
+        result.b() = result.b().cwiseMax(0.0f).cwiseMin(65535.0f);
     }
     // For 32-bit, no clipping needed
     
-    return enhanced;
+    return result;
 }
 
 cv::Mat LDCI::apply_ldci_multi_channel() {
@@ -240,8 +279,8 @@ cv::Mat LDCI::execute() {
         } else {
             // Use single-channel processing
             if (use_eigen_) {
-                hdr_isp::EigenImage eigen_result = apply_ldci_eigen();
-                img_ = hdr_isp::eigen_to_opencv(eigen_result);
+                hdr_isp::EigenImage3C eigen_result = apply_ldci_eigen();
+                img_ = eigen_result.toOpenCV(CV_32FC3);
             } else {
                 img_ = apply_ldci_opencv();
             }
@@ -256,4 +295,28 @@ cv::Mat LDCI::execute() {
     }
 
     return img_;
+}
+
+hdr_isp::EigenImage3C LDCI::execute_eigen() {
+    if (is_enable_) {
+        auto start = std::chrono::high_resolution_clock::now();
+        
+        hdr_isp::EigenImage3C result = apply_ldci_eigen();
+        
+        auto end = std::chrono::high_resolution_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+        
+        if (is_debug_) {
+            std::cout << "  Eigen execution time: " << duration.count() / 1000.0 << "s" << std::endl;
+        }
+        
+        return result;
+    }
+
+    // Return original image if not enabled
+    if (has_eigen_input_) {
+        return eigen_img_;
+    } else {
+        return hdr_isp::EigenImage3C::fromOpenCV(img_);
+    }
 } 

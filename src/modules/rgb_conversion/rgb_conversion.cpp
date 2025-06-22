@@ -37,6 +37,36 @@ RGBConversion::RGBConversion(cv::Mat& img, const YAML::Node& platform, const YAM
     offset_ = cv::Vec3i(16, 128, 128);
 }
 
+RGBConversion::RGBConversion(const hdr_isp::EigenImage3C& img, const YAML::Node& platform, const YAML::Node& sensor_info,
+                           const YAML::Node& parm_rgb, const YAML::Node& parm_csc)
+    : eigen_img_(img)
+    , platform_(platform)
+    , sensor_info_(sensor_info)
+    , parm_rgb_(parm_rgb)
+    , parm_csc_(parm_csc)
+    , enable_(parm_rgb["is_enable"].as<bool>())
+    , is_save_(parm_rgb["is_save"].as<bool>())
+    , is_debug_(parm_rgb["is_debug"].as<bool>())
+    , bit_depth_(sensor_info["output_bit_depth"].as<int>())
+    , conv_std_(parm_csc["conv_standard"].as<int>())
+    , use_eigen_(true)
+    , has_eigen_input_(true)
+{
+    // Pre-compute conversion matrices
+    if (conv_std_ == 1) {
+        // BT.709
+        yuv2rgb_mat_ = (cv::Mat_<int>(3, 3) << 74, 0, 114,
+                                             74, -13, -34,
+                                             74, 135, 0);
+    } else {
+        // BT.601/407
+        yuv2rgb_mat_ = (cv::Mat_<int>(3, 3) << 64, 87, 0,
+                                             64, -44, -20,
+                                             61, 0, 105);
+    }
+    offset_ = cv::Vec3i(16, 128, 128);
+}
+
 cv::Mat RGBConversion::yuv_to_rgb_opencv() {
     auto start_total = std::chrono::high_resolution_clock::now();
 
@@ -169,6 +199,33 @@ hdr_isp::EigenImage RGBConversion::yuv_to_rgb_eigen() {
         return eigen_img.r(); // Return red channel as single-channel using public method
     } else {
         throw std::runtime_error("Unsupported number of channels. Use 1 or 3 channels.");
+    }
+}
+
+hdr_isp::EigenImage3C RGBConversion::yuv_to_rgb_eigen_3c() {
+    // Use the appropriate input (Eigen or converted from OpenCV)
+    if (has_eigen_input_) {
+        return eigen_img_;
+    } else {
+        return hdr_isp::EigenImage3C::fromOpenCV(img_);
+    }
+}
+
+hdr_isp::EigenImage3C RGBConversion::execute_eigen() {
+    if (enable_) {
+        auto start = std::chrono::high_resolution_clock::now();
+        hdr_isp::EigenImage3C result = yuv_to_rgb_eigen_3c();
+        auto end = std::chrono::high_resolution_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+        if (is_debug_) {
+            std::cout << "  Eigen execution time: " << duration.count() / 1000.0 << "s" << std::endl;
+        }
+        return result;
+    }
+    if (has_eigen_input_) {
+        return eigen_img_;
+    } else {
+        return hdr_isp::EigenImage3C::fromOpenCV(img_);
     }
 }
 

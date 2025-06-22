@@ -127,6 +127,8 @@ public:
     EigenImage3C() = default;
     EigenImage3C(int rows, int cols) 
         : r_(rows, cols), g_(rows, cols), b_(rows, cols) {}
+    EigenImage3C(const EigenImage& r, const EigenImage& g, const EigenImage& b)
+        : r_(r), g_(g), b_(b) {}
     
     // Conversion from OpenCV Mat
     static EigenImage3C fromOpenCV(const cv::Mat& mat);
@@ -155,6 +157,9 @@ public:
     
     // Matrix multiplication (for color space conversion)
     EigenImage3C operator*(const Eigen::Matrix3f& matrix) const;
+    
+    // Clone method
+    EigenImage3C clone() const { return EigenImage3C(r_, g_, b_); }
     
 private:
     EigenImage r_, g_, b_;
@@ -280,6 +285,71 @@ public:
     
 private:
     Eigen::Matrix<uint32_t, Eigen::Dynamic, Eigen::Dynamic> data_;
+};
+
+/**
+ * @brief Three-channel Eigen-based image class for fixed-point processing
+ * 
+ * This class provides a wrapper around three Eigen::Matrix<int16_t> for RGB/YUV images
+ * with fixed-point arithmetic, optimized for modules after demosaic.
+ */
+class EigenImage3CFixed {
+public:
+    EigenImage3CFixed() = default;
+    EigenImage3CFixed(int rows, int cols) 
+        : r_(rows, cols), g_(rows, cols), b_(rows, cols) {}
+    EigenImage3CFixed(const Eigen::Matrix<int16_t, Eigen::Dynamic, Eigen::Dynamic>& r,
+                      const Eigen::Matrix<int16_t, Eigen::Dynamic, Eigen::Dynamic>& g,
+                      const Eigen::Matrix<int16_t, Eigen::Dynamic, Eigen::Dynamic>& b)
+        : r_(r), g_(g), b_(b) {}
+    
+    // Conversion from floating-point EigenImage3C
+    static EigenImage3CFixed fromEigenImage3C(const EigenImage3C& img, int fractional_bits);
+    
+    // Conversion to floating-point EigenImage3C
+    EigenImage3C toEigenImage3C(int fractional_bits) const;
+    
+    // Conversion to OpenCV Mat (for saving/display)
+    cv::Mat toOpenCV(int fractional_bits, int opencv_type = CV_32FC3) const;
+    
+    // Access to channels
+    Eigen::Matrix<int16_t, Eigen::Dynamic, Eigen::Dynamic>& r() { return r_; }
+    Eigen::Matrix<int16_t, Eigen::Dynamic, Eigen::Dynamic>& g() { return g_; }
+    Eigen::Matrix<int16_t, Eigen::Dynamic, Eigen::Dynamic>& b() { return b_; }
+    const Eigen::Matrix<int16_t, Eigen::Dynamic, Eigen::Dynamic>& r() const { return r_; }
+    const Eigen::Matrix<int16_t, Eigen::Dynamic, Eigen::Dynamic>& g() const { return g_; }
+    const Eigen::Matrix<int16_t, Eigen::Dynamic, Eigen::Dynamic>& b() const { return b_; }
+    
+    // Basic operations
+    int rows() const { return r_.rows(); }
+    int cols() const { return r_.cols(); }
+    
+    // Element-wise operations
+    EigenImage3CFixed operator*(int16_t scalar) const;
+    EigenImage3CFixed operator*(const Eigen::Vector3i& gains) const;
+    
+    // Clipping operations
+    EigenImage3CFixed clip(int16_t min_val, int16_t max_val) const;
+    
+    // Matrix multiplication (for color space conversion)
+    EigenImage3CFixed operator*(const Eigen::Matrix3i& matrix) const;
+    
+    // Clone method
+    EigenImage3CFixed clone() const { return EigenImage3CFixed(r_, g_, b_); }
+    
+    // Statistics
+    int16_t min() const { 
+        return std::min({r_.minCoeff(), g_.minCoeff(), b_.minCoeff()}); 
+    }
+    int16_t max() const { 
+        return std::max({r_.maxCoeff(), g_.maxCoeff(), b_.maxCoeff()}); 
+    }
+    float mean() const { 
+        return (r_.cast<float>().mean() + g_.cast<float>().mean() + b_.cast<float>().mean()) / 3.0f; 
+    }
+    
+private:
+    Eigen::Matrix<int16_t, Eigen::Dynamic, Eigen::Dynamic> r_, g_, b_;
 };
 
 // Utility functions
