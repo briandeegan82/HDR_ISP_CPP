@@ -101,7 +101,7 @@ private:
     void load_config(const std::string& config_path);
     void load_raw();
     void handle_non_byte_aligned_bit_depth();
-    cv::Mat run_pipeline(bool visualize_output, bool save_intermediate);
+    hdr_isp::EigenImageU32 run_pipeline(bool visualize_output, bool save_intermediate);
     void load_3a_statistics(bool awb_on, bool ae_on);
     cv::Mat execute_with_3a_statistics(bool save_intermediate);
 }; 

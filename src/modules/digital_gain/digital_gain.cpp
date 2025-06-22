@@ -3,12 +3,13 @@
 #include <iostream>
 #include <filesystem>
 #include <algorithm>
+#include <opencv2/opencv.hpp>
 
 namespace fs = std::filesystem;
 
-DigitalGain::DigitalGain(const cv::Mat& img, const YAML::Node& platform,
+DigitalGain::DigitalGain(const hdr_isp::EigenImageU32& img, const YAML::Node& platform,
                         const YAML::Node& sensor_info, const YAML::Node& parm_dga)
-    : img_(img.clone())
+    : img_(img)
     , platform_(platform)
     , sensor_info_(sensor_info)
     , parm_dga_(parm_dga)
@@ -17,28 +18,13 @@ DigitalGain::DigitalGain(const cv::Mat& img, const YAML::Node& platform,
     , is_auto_(false)
     , current_gain_(0)
     , ae_feedback_(0.0f)
-    , use_eigen_(true) // Use Eigen by default
 {
-    std::cout << "DigitalGain constructor - starting parameter extraction..." << std::endl;
-    
     try {
-        std::cout << "  Extracting is_save..." << std::endl;
         is_save_ = parm_dga["is_save"].as<bool>();
-        std::cout << "  is_save = " << is_save_ << std::endl;
-        
-        std::cout << "  Extracting is_debug..." << std::endl;
         is_debug_ = parm_dga["is_debug"].as<bool>();
-        std::cout << "  is_debug = " << is_debug_ << std::endl;
-        
-        std::cout << "  Extracting is_auto..." << std::endl;
         is_auto_ = parm_dga["is_auto"].as<bool>();
-        std::cout << "  is_auto = " << is_auto_ << std::endl;
-        
-        std::cout << "  Extracting current_gain..." << std::endl;
         current_gain_ = parm_dga["current_gain"].as<int>();
-        std::cout << "  current_gain = " << current_gain_ << std::endl;
         
-        std::cout << "  Extracting ae_feedback..." << std::endl;
         // Try to convert ae_feedback safely
         try {
             ae_feedback_ = parm_dga["ae_feedback"].as<float>();
@@ -46,17 +32,12 @@ DigitalGain::DigitalGain(const cv::Mat& img, const YAML::Node& platform,
             // If float conversion fails, try int conversion
             ae_feedback_ = static_cast<float>(parm_dga["ae_feedback"].as<int>());
         }
-        std::cout << "  ae_feedback = " << ae_feedback_ << std::endl;
         
-        std::cout << "  Extracting gain_array..." << std::endl;
         // Convert YAML sequence to vector of floats
         const YAML::Node& gains_node = parm_dga["gain_array"];
         for (const auto& gain : gains_node) {
             gains_array_.push_back(gain.as<float>());
         }
-        std::cout << "  gain_array size = " << gains_array_.size() << std::endl;
-        
-        std::cout << "DigitalGain constructor - parameter extraction completed successfully" << std::endl;
     }
     catch (const YAML::Exception& e) {
         std::cerr << "YAML Exception in DigitalGain constructor: " << e.what() << std::endl;
@@ -68,108 +49,27 @@ DigitalGain::DigitalGain(const cv::Mat& img, const YAML::Node& platform,
     }
 }
 
-cv::Mat DigitalGain::apply_digital_gain_opencv() {
-    std::cout << "DigitalGain::apply_digital_gain_opencv() - starting..." << std::endl;
-    
-    try {
-        // Get desired parameters from config
-        std::cout << "  Getting output_bit_depth from sensor_info..." << std::endl;
-        int bpp = sensor_info_["output_bit_depth"].as<int>();
-        std::cout << "  output_bit_depth = " << bpp << std::endl;
-
-        // Convert to float image
-        std::cout << "  Converting image to float..." << std::endl;
-        cv::Mat float_img;
-        img_.convertTo(float_img, CV_32F);
-        std::cout << "  Image converted to float successfully" << std::endl;
-
-        // Apply gains based on AE feedback
-        if (is_auto_) {
-            std::cout << "  Auto mode enabled, checking AE feedback..." << std::endl;
-            if (ae_feedback_ < 0) {
-                // Increase gain for underexposed image
-                current_gain_ = std::min(static_cast<int>(gains_array_.size() - 1), current_gain_ + 1);
-                std::cout << "  AE feedback < 0, increasing gain to " << current_gain_ << std::endl;
-            }
-            else if (ae_feedback_ > 0) {
-                // Decrease gain for overexposed image
-                current_gain_ = std::max(0, current_gain_ - 1);
-                std::cout << "  AE feedback > 0, decreasing gain to " << current_gain_ << std::endl;
-            }
-        }
-
-        // Apply the selected gain
-        std::cout << "  Applying gain " << gains_array_[current_gain_] << std::endl;
-        float_img *= gains_array_[current_gain_];
-
-        if (is_debug_) {
-            std::cout << "   - DG  - Applied Gain = " << gains_array_[current_gain_] << std::endl;
-        }
-
-        // Convert back to original bit depth with clipping
-        std::cout << "  Converting back to original bit depth..." << std::endl;
-        cv::Mat result;
-        float_img.convertTo(result, CV_32S);
-        std::cout << "  Converted to CV_32S successfully" << std::endl;
-        
-        // Use cv::min and cv::max instead of cv::threshold for signed integers
-        int max_val = (1 << bpp) - 1;
-        cv::Mat clipped_result;
-        cv::min(result, max_val, clipped_result);
-        cv::max(clipped_result, 0, result);
-        std::cout << "  Applied clipping successfully" << std::endl;
-        
-        result.convertTo(result, img_.type());
-        std::cout << "  Converted to original type successfully" << std::endl;
-
-        std::cout << "DigitalGain::apply_digital_gain_opencv() - completed successfully" << std::endl;
-        return result;
-    }
-    catch (const YAML::Exception& e) {
-        std::cerr << "YAML Exception in apply_digital_gain_opencv: " << e.what() << std::endl;
-        throw;
-    }
-    catch (const cv::Exception& e) {
-        std::cerr << "OpenCV Exception in apply_digital_gain_opencv: " << e.what() << std::endl;
-        throw;
-    }
-    catch (const std::exception& e) {
-        std::cerr << "Exception in apply_digital_gain_opencv: " << e.what() << std::endl;
-        throw;
-    }
-}
-
 hdr_isp::EigenImageU32 DigitalGain::apply_digital_gain_eigen() {
-    std::cout << "DigitalGain::apply_digital_gain_eigen() - starting..." << std::endl;
-    
     // Get output bit depth from sensor info
     int output_bit_depth = sensor_info_["output_bit_depth"].as<int>();
-    std::cout << "  Getting output_bit_depth from sensor_info..." << std::endl;
-    std::cout << "  output_bit_depth = " << output_bit_depth << std::endl;
     
-    // Convert to EigenImageU32 for uint32 processing
-    std::cout << "  Converting image to EigenImageU32..." << std::endl;
-    hdr_isp::EigenImageU32 eigen_img = hdr_isp::EigenImageU32::fromOpenCV(img_);
-    std::cout << "  Image converted to EigenImageU32 successfully" << std::endl;
+    // Start with the input EigenImageU32
+    hdr_isp::EigenImageU32 eigen_img = img_;
 
     // Apply gains based on AE feedback
     if (is_auto_) {
-        std::cout << "  Auto mode enabled, checking AE feedback..." << std::endl;
         if (ae_feedback_ < 0) {
             // Increase gain for underexposed image
             current_gain_ = std::min(static_cast<int>(gains_array_.size() - 1), current_gain_ + 1);
-            std::cout << "  AE feedback < 0, increasing gain to " << current_gain_ << std::endl;
         }
         else if (ae_feedback_ > 0) {
             // Decrease gain for overexposed image
             current_gain_ = std::max(0, current_gain_ - 1);
-            std::cout << "  AE feedback > 0, decreasing gain to " << current_gain_ << std::endl;
         }
     }
 
     // Apply the selected gain with proper precision
     float gain = gains_array_[current_gain_];
-    std::cout << "  Applying gain " << gain << std::endl;
     
     // Convert to float for precise multiplication, then back to uint32
     Eigen::MatrixXf float_img = eigen_img.data().cast<float>();
@@ -185,7 +85,6 @@ hdr_isp::EigenImageU32 DigitalGain::apply_digital_gain_eigen() {
 
     // For HDR ISP pipeline, only clamp to prevent overflow, not to output bit depth
     // This preserves the full dynamic range for subsequent HDR processing stages
-    std::cout << "  Applying overflow protection..." << std::endl;
     
     // Only clamp to prevent uint32 overflow (2^32 - 1)
     uint32_t max_val = 4294967295U; // 2^32 - 1
@@ -193,32 +92,27 @@ hdr_isp::EigenImageU32 DigitalGain::apply_digital_gain_eigen() {
     // Create EigenImageU32 from the processed matrix
     hdr_isp::EigenImageU32 result(uint32_img);
     result = result.clip(0, max_val);
-    std::cout << "  Applied overflow protection successfully" << std::endl;
 
-    std::cout << "DigitalGain::apply_digital_gain_eigen() - completed successfully" << std::endl;
     return result;
 }
 
 void DigitalGain::save() {
     if (is_save_) {
+        // Convert to OpenCV only for saving if needed
+        cv::Mat opencv_img = img_.toOpenCV(CV_32SC1);
         std::string output_path = "out_frames/intermediate/Out_digital_gain_" + 
-                                 std::to_string(img_.cols) + "x" + std::to_string(img_.rows) + ".png";
-        cv::imwrite(output_path, img_);
+                                 std::to_string(img_.cols()) + "x" + std::to_string(img_.rows()) + ".png";
+        cv::imwrite(output_path, opencv_img);
     }
 }
 
-std::pair<cv::Mat, float> DigitalGain::execute() {
+std::pair<hdr_isp::EigenImageU32, float> DigitalGain::execute() {
     float applied_gain = gains_array_[current_gain_];
     
     if (is_auto_) {
         auto start = std::chrono::high_resolution_clock::now();
         
-        if (use_eigen_) {
-            hdr_isp::EigenImageU32 result = apply_digital_gain_eigen();
-            img_ = result.toOpenCV(img_.type());
-        } else {
-            img_ = apply_digital_gain_opencv();
-        }
+        img_ = apply_digital_gain_eigen();
         
         auto end = std::chrono::high_resolution_clock::now();
         auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);

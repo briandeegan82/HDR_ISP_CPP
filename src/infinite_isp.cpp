@@ -286,9 +286,9 @@ void InfiniteISP::handle_non_byte_aligned_bit_depth() {
     // Add more bit depth handling as needed
 }
 
-cv::Mat InfiniteISP::run_pipeline(bool visualize_output, bool save_intermediate) {
-    // Convert EigenImageU32 to cv::Mat for processing
-    cv::Mat img = raw_.toOpenCV(CV_32S);
+hdr_isp::EigenImageU32 InfiniteISP::run_pipeline(bool visualize_output, bool save_intermediate) {
+    // Start with Eigen data for all modules before demosaic
+    hdr_isp::EigenImageU32 eigen_img = raw_.clone();
 
     // Create output directory for intermediate images if needed
     fs::path intermediate_dir;
@@ -297,48 +297,56 @@ cv::Mat InfiniteISP::run_pipeline(bool visualize_output, bool save_intermediate)
         fs::create_directories(intermediate_dir);
     }
 
-    // Debug: Print initial image statistics
-    double min_val, max_val;
-    cv::minMaxLoc(img, &min_val, &max_val);
-    cv::Scalar mean_val = cv::mean(img);
+    // Debug: Print initial image statistics using Eigen
+    uint32_t min_val = eigen_img.min();
+    uint32_t max_val = eigen_img.max();
+    float mean_val = eigen_img.mean();
     std::cout << "=== INITIAL IMAGE STATS ===" << std::endl;
-    std::cout << "Type: " << img.type() << " (CV_8U=" << CV_8U << ", CV_16U=" << CV_16U << ", CV_32S=" << CV_32S << ", CV_32F=" << CV_32F << ")" << std::endl;
-    std::cout << "Min: " << min_val << ", Mean: " << mean_val[0] << ", Max: " << max_val << std::endl;
-    std::cout << "Size: " << img.cols << "x" << img.rows << ", Channels: " << img.channels() << std::endl;
+    std::cout << "Type: EigenImageU32 (uint32_t)" << std::endl;
+    std::cout << "Min: " << min_val << ", Mean: " << mean_val << ", Max: " << max_val << std::endl;
+    std::cout << "Size: " << eigen_img.cols() << "x" << eigen_img.rows() << ", Channels: 1" << std::endl;
     std::cout << "==========================" << std::endl;
+
+    // Variable to hold the final result after demosaic (will be converted to cv::Mat for modules that need it)
+    cv::Mat img;
+    
+    // Variables for OpenCV conversions and debug output
+    cv::Mat opencv_img;
+    double min_val_cv, max_val_cv;
+    cv::Scalar mean_val_cv;
 
     // =====================================================================
     // 1. Cropping
     std::cout << "Cropping" << std::endl;
     if (parm_cro_["is_enable"].as<bool>()) {
-        Crop crop(img, config_["platform"], config_["sensor_info"], parm_cro_);
-        img = crop.execute();
+        // Convert to OpenCV for crop module (since it doesn't have Eigen implementation yet)
+        opencv_img = eigen_img.toOpenCV(CV_32S);
+        Crop crop(opencv_img, config_["platform"], config_["sensor_info"], parm_cro_);
+        opencv_img = crop.execute();
+        eigen_img = hdr_isp::EigenImageU32::fromOpenCV(opencv_img);
         
         // Debug: Print image statistics after cropping
-        cv::minMaxLoc(img, &min_val, &max_val);
-        mean_val = cv::mean(img);
+        cv::minMaxLoc(opencv_img, &min_val_cv, &max_val_cv);
+        mean_val_cv = cv::mean(opencv_img);
         std::cout << "=== AFTER CROPPING ===" << std::endl;
-        std::cout << "Type: " << img.type() << std::endl;
-        std::cout << "Min: " << min_val << ", Mean: " << mean_val[0] << ", Max: " << max_val << std::endl;
-        std::cout << "Size: " << img.cols << "x" << img.rows << ", Channels: " << img.channels() << std::endl;
+        std::cout << "Type: " << opencv_img.type() << std::endl;
+        std::cout << "Min: " << min_val_cv << ", Mean: " << mean_val_cv[0] << ", Max: " << max_val_cv << std::endl;
+        std::cout << "Size: " << opencv_img.cols << "x" << opencv_img.rows << ", Channels: " << opencv_img.channels() << std::endl;
         std::cout << "=====================" << std::endl;
         
         if (save_intermediate) {
             fs::path output_path = intermediate_dir / "crop.png";
             // Debug: Print image statistics before saving
-            double min_val, max_val;
-            cv::minMaxLoc(img, &min_val, &max_val);
-            cv::Scalar mean_val = cv::mean(img);
-            std::cout << "Crop - Mean: " << mean_val[0] << ", Min: " << min_val << ", Max: " << max_val << ", Type: " << img.type() << std::endl;
+            std::cout << "Crop - Mean: " << mean_val_cv[0] << ", Min: " << min_val_cv << ", Max: " << max_val_cv << ", Type: " << opencv_img.type() << std::endl;
             
             // Convert to 8-bit for display
             cv::Mat save_img;
-            if (img.type() == CV_32F) {
-                img.convertTo(save_img, CV_8U, 255.0);
-            } else if (img.type() == CV_16U) {
-                img.convertTo(save_img, CV_8U, 255.0 / 65535.0);
+            if (opencv_img.type() == CV_32F) {
+                opencv_img.convertTo(save_img, CV_8U, 255.0);
+            } else if (opencv_img.type() == CV_16U) {
+                opencv_img.convertTo(save_img, CV_8U, 255.0 / 65535.0);
             } else {
-                img.convertTo(save_img, CV_8U, 255.0 / ((1 << sensor_info_.bit_depth) - 1));
+                opencv_img.convertTo(save_img, CV_8U, 255.0 / ((1 << sensor_info_.bit_depth) - 1));
             }
             cv::imwrite(output_path.string(), save_img);
         }
@@ -348,34 +356,34 @@ cv::Mat InfiniteISP::run_pipeline(bool visualize_output, bool save_intermediate)
     // 2. Dead pixels correction
     std::cout << "Dead pixels correction" << std::endl;
     if (parm_dpc_["is_enable"].as<bool>()) {
-        DeadPixelCorrection dpc(img, config_["platform"], config_["sensor_info"], parm_dpc_);
-        img = dpc.execute();
+        // Convert to OpenCV for dead pixel correction module
+        opencv_img = eigen_img.toOpenCV(CV_32S);
+        DeadPixelCorrection dpc(opencv_img, config_["platform"], config_["sensor_info"], parm_dpc_);
+        opencv_img = dpc.execute();
+        eigen_img = hdr_isp::EigenImageU32::fromOpenCV(opencv_img);
         
         // Debug: Print image statistics after dead pixel correction
-        cv::minMaxLoc(img, &min_val, &max_val);
-        mean_val = cv::mean(img);
+        cv::minMaxLoc(opencv_img, &min_val_cv, &max_val_cv);
+        mean_val_cv = cv::mean(opencv_img);
         std::cout << "=== AFTER DEAD PIXEL CORRECTION ===" << std::endl;
-        std::cout << "Type: " << img.type() << std::endl;
-        std::cout << "Min: " << min_val << ", Mean: " << mean_val[0] << ", Max: " << max_val << std::endl;
-        std::cout << "Size: " << img.cols << "x" << img.rows << ", Channels: " << img.channels() << std::endl;
+        std::cout << "Type: " << opencv_img.type() << std::endl;
+        std::cout << "Min: " << min_val_cv << ", Mean: " << mean_val_cv[0] << ", Max: " << max_val_cv << std::endl;
+        std::cout << "Size: " << opencv_img.cols << "x" << opencv_img.rows << ", Channels: " << opencv_img.channels() << std::endl;
         std::cout << "==================================" << std::endl;
         
         if (save_intermediate) {
             fs::path output_path = intermediate_dir / "dead_pixel_correction.png";
             // Debug: Print image statistics before saving
-            double min_val, max_val;
-            cv::minMaxLoc(img, &min_val, &max_val);
-            cv::Scalar mean_val = cv::mean(img);
-            std::cout << "DeadPixel - Mean: " << mean_val[0] << ", Min: " << min_val << ", Max: " << max_val << ", Type: " << img.type() << std::endl;
+            std::cout << "DeadPixel - Mean: " << mean_val_cv[0] << ", Min: " << min_val_cv << ", Max: " << max_val_cv << ", Type: " << opencv_img.type() << std::endl;
             
             // Convert to 8-bit for display
             cv::Mat save_img;
-            if (img.type() == CV_32F) {
-                img.convertTo(save_img, CV_8U, 255.0);
-            } else if (img.type() == CV_16U) {
-                img.convertTo(save_img, CV_8U, 255.0 / 65535.0);
+            if (opencv_img.type() == CV_32F) {
+                opencv_img.convertTo(save_img, CV_8U, 255.0);
+            } else if (opencv_img.type() == CV_16U) {
+                opencv_img.convertTo(save_img, CV_8U, 255.0 / 65535.0);
             } else {
-                img.convertTo(save_img, CV_8U, 255.0 / ((1 << sensor_info_.bit_depth) - 1));
+                opencv_img.convertTo(save_img, CV_8U, 255.0 / ((1 << sensor_info_.bit_depth) - 1));
             }
             cv::imwrite(output_path.string(), save_img);
         }
@@ -385,34 +393,34 @@ cv::Mat InfiniteISP::run_pipeline(bool visualize_output, bool save_intermediate)
     // 3. Black level correction
     std::cout << "Black level correction" << std::endl;
     if (parm_blc_["is_enable"].as<bool>()) {
-        BlackLevelCorrection blc(img, config_["sensor_info"], parm_blc_);
-        img = blc.execute();
+        // Convert to OpenCV for black level correction module
+        opencv_img = eigen_img.toOpenCV(CV_32S);
+        BlackLevelCorrection blc(opencv_img, config_["sensor_info"], parm_blc_);
+        opencv_img = blc.execute();
+        eigen_img = hdr_isp::EigenImageU32::fromOpenCV(opencv_img);
         
         // Debug: Print image statistics after black level correction
-        cv::minMaxLoc(img, &min_val, &max_val);
-        mean_val = cv::mean(img);
+        cv::minMaxLoc(opencv_img, &min_val_cv, &max_val_cv);
+        mean_val_cv = cv::mean(opencv_img);
         std::cout << "=== AFTER BLACK LEVEL CORRECTION ===" << std::endl;
-        std::cout << "Type: " << img.type() << std::endl;
-        std::cout << "Min: " << min_val << ", Mean: " << mean_val[0] << ", Max: " << max_val << std::endl;
-        std::cout << "Size: " << img.cols << "x" << img.rows << ", Channels: " << img.channels() << std::endl;
+        std::cout << "Type: " << opencv_img.type() << std::endl;
+        std::cout << "Min: " << min_val_cv << ", Mean: " << mean_val_cv[0] << ", Max: " << max_val_cv << std::endl;
+        std::cout << "Size: " << opencv_img.cols << "x" << opencv_img.rows << ", Channels: " << opencv_img.channels() << std::endl;
         std::cout << "===================================" << std::endl;
         
         if (save_intermediate) {
             fs::path output_path = intermediate_dir / "black_level_correction.png";
             // Debug: Print image statistics before saving
-            double min_val, max_val;
-            cv::minMaxLoc(img, &min_val, &max_val);
-            cv::Scalar mean_val = cv::mean(img);
-            std::cout << "BLC - Mean: " << mean_val[0] << ", Min: " << min_val << ", Max: " << max_val << ", Type: " << img.type() << std::endl;
+            std::cout << "BLC - Mean: " << mean_val_cv[0] << ", Min: " << min_val_cv << ", Max: " << max_val_cv << ", Type: " << opencv_img.type() << std::endl;
             
             // Convert to 8-bit for display
             cv::Mat save_img;
-            if (img.type() == CV_32F) {
-                img.convertTo(save_img, CV_8U, 255.0);
-            } else if (img.type() == CV_16U) {
-                img.convertTo(save_img, CV_8U, 255.0 / 65535.0);
+            if (opencv_img.type() == CV_32F) {
+                opencv_img.convertTo(save_img, CV_8U, 255.0);
+            } else if (opencv_img.type() == CV_16U) {
+                opencv_img.convertTo(save_img, CV_8U, 255.0 / 65535.0);
             } else {
-                img.convertTo(save_img, CV_8U, 255.0 / ((1 << sensor_info_.bit_depth) - 1));
+                opencv_img.convertTo(save_img, CV_8U, 255.0 / ((1 << sensor_info_.bit_depth) - 1));
             }
             cv::imwrite(output_path.string(), save_img);
         }
@@ -422,34 +430,34 @@ cv::Mat InfiniteISP::run_pipeline(bool visualize_output, bool save_intermediate)
     // 4. Decompanding (Piecewise curve)
     std::cout << "Decompanding (Piecewise curve)" << std::endl;
     if (parm_cmpd_["is_enable"].as<bool>()) {
-        PiecewiseCurve pwc(img, config_["platform"], config_["sensor_info"], parm_cmpd_);
-        img = pwc.execute();
+        // Convert to OpenCV for piecewise curve module
+        opencv_img = eigen_img.toOpenCV(CV_32S);
+        PiecewiseCurve pwc(opencv_img, config_["platform"], config_["sensor_info"], parm_cmpd_);
+        opencv_img = pwc.execute();
+        eigen_img = hdr_isp::EigenImageU32::fromOpenCV(opencv_img);
         
         // Debug: Print image statistics after decompanding
-        cv::minMaxLoc(img, &min_val, &max_val);
-        mean_val = cv::mean(img);
+        cv::minMaxLoc(opencv_img, &min_val_cv, &max_val_cv);
+        mean_val_cv = cv::mean(opencv_img);
         std::cout << "=== AFTER DECOMPANDING ===" << std::endl;
-        std::cout << "Type: " << img.type() << std::endl;
-        std::cout << "Min: " << min_val << ", Mean: " << mean_val[0] << ", Max: " << max_val << std::endl;
-        std::cout << "Size: " << img.cols << "x" << img.rows << ", Channels: " << img.channels() << std::endl;
+        std::cout << "Type: " << opencv_img.type() << std::endl;
+        std::cout << "Min: " << min_val_cv << ", Mean: " << mean_val_cv[0] << ", Max: " << max_val_cv << std::endl;
+        std::cout << "Size: " << opencv_img.cols << "x" << opencv_img.rows << ", Channels: " << opencv_img.channels() << std::endl;
         std::cout << "=========================" << std::endl;
         
         if (save_intermediate) {
             fs::path output_path = intermediate_dir / "piecewise_curve.png";
             // Debug: Print image statistics before saving
-            double min_val, max_val;
-            cv::minMaxLoc(img, &min_val, &max_val);
-            cv::Scalar mean_val = cv::mean(img);
-            std::cout << "PWC - Mean: " << mean_val[0] << ", Min: " << min_val << ", Max: " << max_val << ", Type: " << img.type() << std::endl;
+            std::cout << "PWC - Mean: " << mean_val_cv[0] << ", Min: " << min_val_cv << ", Max: " << max_val_cv << ", Type: " << opencv_img.type() << std::endl;
             
             // Convert to 8-bit for display
             cv::Mat save_img;
-            if (img.type() == CV_32F) {
-                img.convertTo(save_img, CV_8U, 255.0);
-            } else if (img.type() == CV_16U) {
-                img.convertTo(save_img, CV_8U, 255.0 / 65535.0);
+            if (opencv_img.type() == CV_32F) {
+                opencv_img.convertTo(save_img, CV_8U, 255.0);
+            } else if (opencv_img.type() == CV_16U) {
+                opencv_img.convertTo(save_img, CV_8U, 255.0 / 65535.0);
             } else {
-                img.convertTo(save_img, CV_8U, 255.0 / ((1 << sensor_info_.bit_depth) - 1));
+                opencv_img.convertTo(save_img, CV_8U, 255.0 / ((1 << sensor_info_.bit_depth) - 1));
             }
             cv::imwrite(output_path.string(), save_img);
         }
@@ -459,24 +467,27 @@ cv::Mat InfiniteISP::run_pipeline(bool visualize_output, bool save_intermediate)
     // 5. OECF
     std::cout << "OECF" << std::endl;
     if (parm_oec_["is_enable"].as<bool>()) {
-        OECF oecf(img, config_["platform"], config_["sensor_info"], parm_oec_);
-        img = oecf.execute();
+        // Convert to OpenCV for OECF module
+        opencv_img = eigen_img.toOpenCV(CV_32S);
+        OECF oecf(opencv_img, config_["platform"], config_["sensor_info"], parm_oec_);
+        opencv_img = oecf.execute();
+        eigen_img = hdr_isp::EigenImageU32::fromOpenCV(opencv_img);
+        
         if (save_intermediate) {
             fs::path output_path = intermediate_dir / "oecf.png";
             // Debug: Print image statistics before saving
-            double min_val, max_val;
-            cv::minMaxLoc(img, &min_val, &max_val);
-            cv::Scalar mean_val = cv::mean(img);
-            std::cout << "OECF - Mean: " << mean_val[0] << ", Min: " << min_val << ", Max: " << max_val << ", Type: " << img.type() << std::endl;
+            cv::minMaxLoc(opencv_img, &min_val_cv, &max_val_cv);
+            mean_val_cv = cv::mean(opencv_img);
+            std::cout << "OECF - Mean: " << mean_val_cv[0] << ", Min: " << min_val_cv << ", Max: " << max_val_cv << ", Type: " << opencv_img.type() << std::endl;
             
             // Convert to 8-bit for display
             cv::Mat save_img;
-            if (img.type() == CV_32F) {
-                img.convertTo(save_img, CV_8U, 255.0);
-            } else if (img.type() == CV_16U) {
-                img.convertTo(save_img, CV_8U, 255.0 / 65535.0);
+            if (opencv_img.type() == CV_32F) {
+                opencv_img.convertTo(save_img, CV_8U, 255.0);
+            } else if (opencv_img.type() == CV_16U) {
+                opencv_img.convertTo(save_img, CV_8U, 255.0 / 65535.0);
             } else {
-                img.convertTo(save_img, CV_8U, 255.0 / ((1 << sensor_info_.bit_depth) - 1));
+                opencv_img.convertTo(save_img, CV_8U, 255.0 / ((1 << sensor_info_.bit_depth) - 1));
             }
             cv::imwrite(output_path.string(), save_img);
         }
@@ -487,26 +498,29 @@ cv::Mat InfiniteISP::run_pipeline(bool visualize_output, bool save_intermediate)
     std::cout << "Digital Gain" << std::endl;
       
     try {
-        DigitalGain dga(img, config_["platform"], config_["sensor_info"], parm_dga_);
-        auto [result_img, gain] = dga.execute();
-        img = result_img;
+        // Digital gain already uses Eigen
+        DigitalGain dga(eigen_img, config_["platform"], config_["sensor_info"], parm_dga_);
+        auto [result_eigen, gain] = dga.execute();
+        eigen_img = result_eigen;
         dga_current_gain_ = gain;
+        
         if (save_intermediate) {
             fs::path output_path = intermediate_dir / "digital_gain.png";
+            // Convert to OpenCV for saving
+            opencv_img = eigen_img.toOpenCV(CV_32S);
             // Debug: Print image statistics before saving
-            double min_val, max_val;
-            cv::minMaxLoc(img, &min_val, &max_val);
-            cv::Scalar mean_val = cv::mean(img);
-            std::cout << "DigitalGain - Mean: " << mean_val[0] << ", Min: " << min_val << ", Max: " << max_val << ", Type: " << img.type() << std::endl;
+            cv::minMaxLoc(opencv_img, &min_val_cv, &max_val_cv);
+            mean_val_cv = cv::mean(opencv_img);
+            std::cout << "DigitalGain - Mean: " << mean_val_cv[0] << ", Min: " << min_val_cv << ", Max: " << max_val_cv << ", Type: " << opencv_img.type() << std::endl;
             
             // Convert to 8-bit for display
             cv::Mat save_img;
-            if (img.type() == CV_32F) {
-                img.convertTo(save_img, CV_8U, 255.0);
-            } else if (img.type() == CV_16U) {
-                img.convertTo(save_img, CV_8U, 255.0 / 65535.0);
+            if (opencv_img.type() == CV_32F) {
+                opencv_img.convertTo(save_img, CV_8U, 255.0);
+            } else if (opencv_img.type() == CV_16U) {
+                opencv_img.convertTo(save_img, CV_8U, 255.0 / 65535.0);
             } else {
-                img.convertTo(save_img, CV_8U, 255.0 / ((1 << sensor_info_.bit_depth) - 1));
+                opencv_img.convertTo(save_img, CV_8U, 255.0 / ((1 << sensor_info_.bit_depth) - 1));
             }
             cv::imwrite(output_path.string(), save_img);
         }
@@ -521,24 +535,27 @@ cv::Mat InfiniteISP::run_pipeline(bool visualize_output, bool save_intermediate)
     // 7. Lens shading correction
     std::cout << "Lens shading correction" << std::endl;
     if (parm_lsc_["is_enable"].as<bool>()) {
-        LensShadingCorrection lsc(img, config_["platform"], config_["sensor_info"], parm_lsc_);
-        img = lsc.execute();
+        // Convert to OpenCV for lens shading correction module
+        opencv_img = eigen_img.toOpenCV(CV_32S);
+        LensShadingCorrection lsc(opencv_img, config_["platform"], config_["sensor_info"], parm_lsc_);
+        opencv_img = lsc.execute();
+        eigen_img = hdr_isp::EigenImageU32::fromOpenCV(opencv_img);
+        
         if (save_intermediate) {
             fs::path output_path = intermediate_dir / "lens_shading_correction.png";
             // Debug: Print image statistics before saving
-            double min_val, max_val;
-            cv::minMaxLoc(img, &min_val, &max_val);
-            cv::Scalar mean_val = cv::mean(img);
-            std::cout << "LSC - Mean: " << mean_val[0] << ", Min: " << min_val << ", Max: " << max_val << ", Type: " << img.type() << std::endl;
+            cv::minMaxLoc(opencv_img, &min_val_cv, &max_val_cv);
+            mean_val_cv = cv::mean(opencv_img);
+            std::cout << "LSC - Mean: " << mean_val_cv[0] << ", Min: " << min_val_cv << ", Max: " << max_val_cv << ", Type: " << opencv_img.type() << std::endl;
             
             // Convert to 8-bit for display
             cv::Mat save_img;
-            if (img.type() == CV_32F) {
-                img.convertTo(save_img, CV_8U, 255.0);
-            } else if (img.type() == CV_16U) {
-                img.convertTo(save_img, CV_8U, 255.0 / 65535.0);
+            if (opencv_img.type() == CV_32F) {
+                opencv_img.convertTo(save_img, CV_8U, 255.0);
+            } else if (opencv_img.type() == CV_16U) {
+                opencv_img.convertTo(save_img, CV_8U, 255.0 / 65535.0);
             } else {
-                img.convertTo(save_img, CV_8U, 255.0 / ((1 << sensor_info_.bit_depth) - 1));
+                opencv_img.convertTo(save_img, CV_8U, 255.0 / ((1 << sensor_info_.bit_depth) - 1));
             }
             cv::imwrite(output_path.string(), save_img);
         }
@@ -548,24 +565,27 @@ cv::Mat InfiniteISP::run_pipeline(bool visualize_output, bool save_intermediate)
     // 8. Bayer noise reduction
     std::cout << "Bayer noise reduction" << std::endl;
     if (parm_bnr_["is_enable"].as<bool>()) {
-        BayerNoiseReduction bnr(img, config_["sensor_info"], parm_bnr_);
-        img = bnr.execute();
+        // Convert to OpenCV for bayer noise reduction module
+        opencv_img = eigen_img.toOpenCV(CV_32S);
+        BayerNoiseReduction bnr(opencv_img, config_["sensor_info"], parm_bnr_);
+        opencv_img = bnr.execute();
+        eigen_img = hdr_isp::EigenImageU32::fromOpenCV(opencv_img);
+        
         if (save_intermediate) {
             fs::path output_path = intermediate_dir / "bayer_noise_reduction.png";
             // Debug: Print image statistics before saving
-            double min_val, max_val;
-            cv::minMaxLoc(img, &min_val, &max_val);
-            cv::Scalar mean_val = cv::mean(img);
-            std::cout << "BNR - Mean: " << mean_val[0] << ", Min: " << min_val << ", Max: " << max_val << ", Type: " << img.type() << std::endl;
+            cv::minMaxLoc(opencv_img, &min_val_cv, &max_val_cv);
+            mean_val_cv = cv::mean(opencv_img);
+            std::cout << "BNR - Mean: " << mean_val_cv[0] << ", Min: " << min_val_cv << ", Max: " << max_val_cv << ", Type: " << opencv_img.type() << std::endl;
             
             // Convert to 8-bit for display
             cv::Mat save_img;
-            if (img.type() == CV_32F) {
-                img.convertTo(save_img, CV_8U, 255.0);
-            } else if (img.type() == CV_16U) {
-                img.convertTo(save_img, CV_8U, 255.0 / 65535.0);
+            if (opencv_img.type() == CV_32F) {
+                opencv_img.convertTo(save_img, CV_8U, 255.0);
+            } else if (opencv_img.type() == CV_16U) {
+                opencv_img.convertTo(save_img, CV_8U, 255.0 / 65535.0);
             } else {
-                img.convertTo(save_img, CV_8U, 255.0 / ((1 << sensor_info_.bit_depth) - 1));
+                opencv_img.convertTo(save_img, CV_8U, 255.0 / ((1 << sensor_info_.bit_depth) - 1));
             }
             cv::imwrite(output_path.string(), save_img);
         }
@@ -576,26 +596,28 @@ cv::Mat InfiniteISP::run_pipeline(bool visualize_output, bool save_intermediate)
     std::cout << "Auto White Balance" << std::endl;
     if (parm_awb_["is_enable"].as<bool>()) {
         std::cout << "Applying auto white balance..." << std::endl;
-        AutoWhiteBalance awb(img, config_["sensor_info"], parm_awb_);
+        // Convert to OpenCV for auto white balance module
+        opencv_img = eigen_img.toOpenCV(CV_32S);
+        AutoWhiteBalance awb(opencv_img, config_["sensor_info"], parm_awb_);
         auto [rgain, bgain] = awb.execute();
         awb_gains_ = {static_cast<float>(rgain), static_cast<float>(bgain)};
+        eigen_img = hdr_isp::EigenImageU32::fromOpenCV(opencv_img);
         
         if (save_intermediate) {
             fs::path output_path = intermediate_dir / "auto_white_balance.png";
             // Debug: Print image statistics before saving
-            double min_val, max_val;
-            cv::minMaxLoc(img, &min_val, &max_val);
-            cv::Scalar mean_val = cv::mean(img);
-            std::cout << "AWB - Mean: " << mean_val[0] << ", Min: " << min_val << ", Max: " << max_val << ", Type: " << img.type() << std::endl;
+            cv::minMaxLoc(opencv_img, &min_val_cv, &max_val_cv);
+            mean_val_cv = cv::mean(opencv_img);
+            std::cout << "AWB - Mean: " << mean_val_cv[0] << ", Min: " << min_val_cv << ", Max: " << max_val_cv << ", Type: " << opencv_img.type() << std::endl;
             
             // Convert to 8-bit for display
             cv::Mat save_img;
-            if (img.type() == CV_32F) {
-                img.convertTo(save_img, CV_8U, 255.0);
-            } else if (img.type() == CV_16U) {
-                img.convertTo(save_img, CV_8U, 255.0 / 65535.0);
+            if (opencv_img.type() == CV_32F) {
+                opencv_img.convertTo(save_img, CV_8U, 255.0);
+            } else if (opencv_img.type() == CV_16U) {
+                opencv_img.convertTo(save_img, CV_8U, 255.0 / 65535.0);
             } else {
-                img.convertTo(save_img, CV_8U, 255.0 / ((1 << sensor_info_.bit_depth) - 1));
+                opencv_img.convertTo(save_img, CV_8U, 255.0 / ((1 << sensor_info_.bit_depth) - 1));
             }
             cv::imwrite(output_path.string(), save_img);
         }
@@ -606,24 +628,27 @@ cv::Mat InfiniteISP::run_pipeline(bool visualize_output, bool save_intermediate)
     std::cout << "White balancing" << std::endl;
     if (parm_wbc_["is_enable"].as<bool>()) {
         std::cout << "Applying white balance..." << std::endl;
-        WhiteBalance wb(img, config_["platform"], config_["sensor_info"], parm_wbc_);
-        img = wb.execute();
+        // Convert to OpenCV for white balance module
+        opencv_img = eigen_img.toOpenCV(CV_32S);
+        WhiteBalance wb(opencv_img, config_["platform"], config_["sensor_info"], parm_wbc_);
+        opencv_img = wb.execute();
+        eigen_img = hdr_isp::EigenImageU32::fromOpenCV(opencv_img);
+        
         if (save_intermediate) {
             fs::path output_path = intermediate_dir / "white_balance.png";
             // Debug: Print image statistics before saving
-            double min_val, max_val;
-            cv::minMaxLoc(img, &min_val, &max_val);
-            cv::Scalar mean_val = cv::mean(img);
-            std::cout << "WB - Mean: " << mean_val[0] << ", Min: " << min_val << ", Max: " << max_val << ", Type: " << img.type() << std::endl;
+            cv::minMaxLoc(opencv_img, &min_val_cv, &max_val_cv);
+            mean_val_cv = cv::mean(opencv_img);
+            std::cout << "WB - Mean: " << mean_val_cv[0] << ", Min: " << min_val_cv << ", Max: " << max_val_cv << ", Type: " << opencv_img.type() << std::endl;
             
             // Convert to 8-bit for display
             cv::Mat save_img;
-            if (img.type() == CV_32F) {
-                img.convertTo(save_img, CV_8U, 255.0);
-            } else if (img.type() == CV_16U) {
-                img.convertTo(save_img, CV_8U, 255.0 / 65535.0);
+            if (opencv_img.type() == CV_32F) {
+                opencv_img.convertTo(save_img, CV_8U, 255.0);
+            } else if (opencv_img.type() == CV_16U) {
+                opencv_img.convertTo(save_img, CV_8U, 255.0 / 65535.0);
             } else {
-                img.convertTo(save_img, CV_8U, 255.0 / ((1 << sensor_info_.bit_depth) - 1));
+                opencv_img.convertTo(save_img, CV_8U, 255.0 / ((1 << sensor_info_.bit_depth) - 1));
             }
             cv::imwrite(output_path.string(), save_img);
         }
@@ -633,46 +658,50 @@ cv::Mat InfiniteISP::run_pipeline(bool visualize_output, bool save_intermediate)
     // 11. HDR tone mapping
     std::cout << "HDR tone mapping" << std::endl;
     if (parm_durand_["is_enable"].as<bool>()) {
-        HDRDurandToneMapping hdr(img, config_["platform"], config_["sensor_info"], parm_durand_);
-        img = hdr.execute();
+        // Convert to OpenCV for HDR tone mapping module
+        opencv_img = eigen_img.toOpenCV(CV_32S);
+        HDRDurandToneMapping hdr(opencv_img, config_["platform"], config_["sensor_info"], parm_durand_);
+        opencv_img = hdr.execute();
+        eigen_img = hdr_isp::EigenImageU32::fromOpenCV(opencv_img);
+        
         if (save_intermediate) {
             fs::path output_path = intermediate_dir / "hdr_tone_mapping.png";
             // Debug: Print image statistics before saving
-            double min_val, max_val;
-            cv::minMaxLoc(img, &min_val, &max_val);
-            cv::Scalar mean_val = cv::mean(img);
-            std::cout << "HDR - Mean: " << mean_val[0] << ", Min: " << min_val << ", Max: " << max_val << ", Type: " << img.type() << std::endl;
+            cv::minMaxLoc(opencv_img, &min_val_cv, &max_val_cv);
+            mean_val_cv = cv::mean(opencv_img);
+            std::cout << "HDR - Mean: " << mean_val_cv[0] << ", Min: " << min_val_cv << ", Max: " << max_val_cv << ", Type: " << opencv_img.type() << std::endl;
             
             // Convert to 8-bit for display
             cv::Mat save_img;
-            if (img.type() == CV_32F) {
-                img.convertTo(save_img, CV_8U, 255.0);
-            } else if (img.type() == CV_16U) {
-                img.convertTo(save_img, CV_8U, 255.0 / 65535.0);
+            if (opencv_img.type() == CV_32F) {
+                opencv_img.convertTo(save_img, CV_8U, 255.0);
+            } else if (opencv_img.type() == CV_16U) {
+                opencv_img.convertTo(save_img, CV_8U, 255.0 / 65535.0);
             } else {
-                img.convertTo(save_img, CV_8U, 255.0 / ((1 << sensor_info_.bit_depth) - 1));
+                opencv_img.convertTo(save_img, CV_8U, 255.0 / ((1 << sensor_info_.bit_depth) - 1));
             }
             cv::imwrite(output_path.string(), save_img);
         }
     }
 
     // =====================================================================
-    // 12. CFA demosaicing
+    // 12. CFA demosaicing - Convert back to OpenCV for demosaic and rest of pipeline
     std::cout << "CFA demosaicing" << std::endl;
     if (parm_dem_["is_enable"].as<bool>()) {
         std::cout << "Applying demosaic..." << std::endl;
+        // Convert Eigen to OpenCV for demosaic
+        opencv_img = eigen_img.toOpenCV(CV_32S);
         DemosaicAlgorithm algorithm = parm_dem_["algorithm"].as<std::string>() == "opencv" ? 
             DemosaicAlgorithm::OPENCV : DemosaicAlgorithm::MALVAR;
-        Demosaic demosaic(img, sensor_info_.bayer_pattern, sensor_info_.bit_depth, save_intermediate, algorithm);
+        Demosaic demosaic(opencv_img, sensor_info_.bayer_pattern, sensor_info_.bit_depth, save_intermediate, algorithm);
         img = demosaic.execute();
         
         if (save_intermediate) {
             fs::path output_path = intermediate_dir / "demosaic.png";
             // Debug: Print image statistics before saving
-            double min_val, max_val;
-            cv::minMaxLoc(img, &min_val, &max_val);
-            cv::Scalar mean_val = cv::mean(img);
-            std::cout << "Demosaic - Mean: " << mean_val << ", Min: " << min_val << ", Max: " << max_val << ", Type: " << img.type() << ", Channels: " << img.channels() << std::endl;
+            cv::minMaxLoc(img, &min_val_cv, &max_val_cv);
+            mean_val_cv = cv::mean(img);
+            std::cout << "Demosaic - Mean: " << mean_val_cv << ", Min: " << min_val_cv << ", Max: " << max_val_cv << ", Type: " << img.type() << ", Channels: " << img.channels() << std::endl;
             
             // Convert to 8-bit for display
             cv::Mat save_img;
@@ -696,10 +725,9 @@ cv::Mat InfiniteISP::run_pipeline(bool visualize_output, bool save_intermediate)
         if (save_intermediate) {
             fs::path output_path = intermediate_dir / "color_correction_matrix.png";
             // Debug: Print image statistics before saving
-            double min_val, max_val;
-            cv::minMaxLoc(img, &min_val, &max_val);
-            cv::Scalar mean_val = cv::mean(img);
-            std::cout << "CCM - Mean: " << mean_val << ", Min: " << min_val << ", Max: " << max_val << ", Type: " << img.type() << ", Channels: " << img.channels() << std::endl;
+            cv::minMaxLoc(img, &min_val_cv, &max_val_cv);
+            mean_val_cv = cv::mean(img);
+            std::cout << "CCM - Mean: " << mean_val_cv << ", Min: " << min_val_cv << ", Max: " << max_val_cv << ", Type: " << img.type() << ", Channels: " << img.channels() << std::endl;
             
             // Convert to 8-bit for display
             cv::Mat save_img;
@@ -725,10 +753,9 @@ cv::Mat InfiniteISP::run_pipeline(bool visualize_output, bool save_intermediate)
         if (save_intermediate) {
             fs::path output_path = intermediate_dir / "gamma_correction.png";
             // Debug: Print image statistics before saving
-            double min_val, max_val;
-            cv::minMaxLoc(img, &min_val, &max_val);
-            cv::Scalar mean_val = cv::mean(img);
-            std::cout << "Gamma - Mean: " << mean_val << ", Min: " << min_val << ", Max: " << max_val << ", Type: " << img.type() << ", Channels: " << img.channels() << std::endl;
+            cv::minMaxLoc(img, &min_val_cv, &max_val_cv);
+            mean_val_cv = cv::mean(img);
+            std::cout << "Gamma - Mean: " << mean_val_cv << ", Min: " << min_val_cv << ", Max: " << max_val_cv << ", Type: " << img.type() << ", Channels: " << img.channels() << std::endl;
             
             // Convert to 8-bit for display
             cv::Mat save_img;
@@ -754,10 +781,9 @@ cv::Mat InfiniteISP::run_pipeline(bool visualize_output, bool save_intermediate)
         if (save_intermediate) {
             fs::path output_path = intermediate_dir / "auto_exposure.png";
             // Debug: Print image statistics before saving
-            double min_val, max_val;
-            cv::minMaxLoc(img, &min_val, &max_val);
-            cv::Scalar mean_val = cv::mean(img);
-            std::cout << "AE - Mean: " << mean_val << ", Min: " << min_val << ", Max: " << max_val << ", Type: " << img.type() << ", Channels: " << img.channels() << std::endl;
+            cv::minMaxLoc(img, &min_val_cv, &max_val_cv);
+            mean_val_cv = cv::mean(img);
+            std::cout << "AE - Mean: " << mean_val_cv << ", Min: " << min_val_cv << ", Max: " << max_val_cv << ", Type: " << img.type() << ", Channels: " << img.channels() << std::endl;
             
             // Convert to 8-bit for display
             cv::Mat save_img;
@@ -781,10 +807,9 @@ cv::Mat InfiniteISP::run_pipeline(bool visualize_output, bool save_intermediate)
         if (save_intermediate) {
             fs::path output_path = intermediate_dir / "color_space_conversion.png";
             // Debug: Print image statistics before saving
-            double min_val, max_val;
-            cv::minMaxLoc(img, &min_val, &max_val);
-            cv::Scalar mean_val = cv::mean(img);
-            std::cout << "CSC - Mean: " << mean_val << ", Min: " << min_val << ", Max: " << max_val << ", Type: " << img.type() << ", Channels: " << img.channels() << std::endl;
+            cv::minMaxLoc(img, &min_val_cv, &max_val_cv);
+            mean_val_cv = cv::mean(img);
+            std::cout << "CSC - Mean: " << mean_val_cv << ", Min: " << min_val_cv << ", Max: " << max_val_cv << ", Type: " << img.type() << ", Channels: " << img.channels() << std::endl;
             
             // Convert to 8-bit for display
             cv::Mat save_img;
@@ -808,10 +833,9 @@ cv::Mat InfiniteISP::run_pipeline(bool visualize_output, bool save_intermediate)
         if (save_intermediate) {
             fs::path output_path = intermediate_dir / "ldci.png";
             // Debug: Print image statistics before saving
-            double min_val, max_val;
-            cv::minMaxLoc(img, &min_val, &max_val);
-            cv::Scalar mean_val = cv::mean(img);
-            std::cout << "LDCI - Mean: " << mean_val << ", Min: " << min_val << ", Max: " << max_val << ", Type: " << img.type() << ", Channels: " << img.channels() << std::endl;
+            cv::minMaxLoc(img, &min_val_cv, &max_val_cv);
+            mean_val_cv = cv::mean(img);
+            std::cout << "LDCI - Mean: " << mean_val_cv << ", Min: " << min_val_cv << ", Max: " << max_val_cv << ", Type: " << img.type() << ", Channels: " << img.channels() << std::endl;
             
             // Convert to 8-bit for display
             cv::Mat save_img;
@@ -851,10 +875,9 @@ cv::Mat InfiniteISP::run_pipeline(bool visualize_output, bool save_intermediate)
         if (save_intermediate) {
             fs::path output_path = intermediate_dir / "sharpen.png";
             // Debug: Print image statistics before saving
-            double min_val, max_val;
-            cv::minMaxLoc(img, &min_val, &max_val);
-            cv::Scalar mean_val = cv::mean(img);
-            std::cout << "Sharpen - Mean: " << mean_val << ", Min: " << min_val << ", Max: " << max_val << ", Type: " << img.type() << ", Channels: " << img.channels() << std::endl;
+            cv::minMaxLoc(img, &min_val_cv, &max_val_cv);
+            mean_val_cv = cv::mean(img);
+            std::cout << "Sharpen - Mean: " << mean_val_cv << ", Min: " << min_val_cv << ", Max: " << max_val_cv << ", Type: " << img.type() << ", Channels: " << img.channels() << std::endl;
             
             // Convert to 8-bit for display
             cv::Mat save_img;
@@ -879,10 +902,9 @@ cv::Mat InfiniteISP::run_pipeline(bool visualize_output, bool save_intermediate)
         if (save_intermediate) {
             fs::path output_path = intermediate_dir / "2d_noise_reduction.png";
             // Debug: Print image statistics before saving
-            double min_val, max_val;
-            cv::minMaxLoc(img, &min_val, &max_val);
-            cv::Scalar mean_val = cv::mean(img);
-            std::cout << "2DNR - Mean: " << mean_val << ", Min: " << min_val << ", Max: " << max_val << ", Type: " << img.type() << ", Channels: " << img.channels() << std::endl;
+            cv::minMaxLoc(img, &min_val_cv, &max_val_cv);
+            mean_val_cv = cv::mean(img);
+            std::cout << "2DNR - Mean: " << mean_val_cv << ", Min: " << min_val_cv << ", Max: " << max_val_cv << ", Type: " << img.type() << ", Channels: " << img.channels() << std::endl;
             
             // Convert to 8-bit for display
             cv::Mat save_img;
@@ -906,10 +928,9 @@ cv::Mat InfiniteISP::run_pipeline(bool visualize_output, bool save_intermediate)
         if (save_intermediate) {
             fs::path output_path = intermediate_dir / "rgb_conversion.png";
             // Debug: Print image statistics before saving
-            double min_val, max_val;
-            cv::minMaxLoc(img, &min_val, &max_val);
-            cv::Scalar mean_val = cv::mean(img);
-            std::cout << "RGB - Mean: " << mean_val << ", Min: " << min_val << ", Max: " << max_val << ", Type: " << img.type() << ", Channels: " << img.channels() << std::endl;
+            cv::minMaxLoc(img, &min_val_cv, &max_val_cv);
+            mean_val_cv = cv::mean(img);
+            std::cout << "RGB - Mean: " << mean_val_cv << ", Min: " << min_val_cv << ", Max: " << max_val_cv << ", Type: " << img.type() << ", Channels: " << img.channels() << std::endl;
             
             // Convert to 8-bit for display
             cv::Mat save_img;
@@ -948,10 +969,9 @@ cv::Mat InfiniteISP::run_pipeline(bool visualize_output, bool save_intermediate)
         if (save_intermediate) {
             fs::path output_path = intermediate_dir / "scale.png";
             // Debug: Print image statistics before saving
-            double min_val, max_val;
-            cv::minMaxLoc(img, &min_val, &max_val);
-            cv::Scalar mean_val = cv::mean(img);
-            std::cout << "Scale - Mean: " << mean_val << ", Min: " << min_val << ", Max: " << max_val << ", Type: " << img.type() << ", Channels: " << img.channels() << std::endl;
+            cv::minMaxLoc(img, &min_val_cv, &max_val_cv);
+            mean_val_cv = cv::mean(img);
+            std::cout << "Scale - Mean: " << mean_val_cv << ", Min: " << min_val_cv << ", Max: " << max_val_cv << ", Type: " << img.type() << ", Channels: " << img.channels() << std::endl;
             
             // Convert to 8-bit for display
             cv::Mat save_img;
@@ -975,10 +995,9 @@ cv::Mat InfiniteISP::run_pipeline(bool visualize_output, bool save_intermediate)
         img = yuv_conv.execute();
         if (save_intermediate) {
             // Debug: Print image statistics before saving
-            double min_val, max_val;
-            cv::minMaxLoc(img, &min_val, &max_val);
-            cv::Scalar mean_val = cv::mean(img);
-            std::cout << "YUV - Mean: " << mean_val << ", Min: " << min_val << ", Max: " << max_val << ", Type: " << img.type() << ", Channels: " << img.channels() << std::endl;
+            cv::minMaxLoc(img, &min_val_cv, &max_val_cv);
+            mean_val_cv = cv::mean(img);
+            std::cout << "YUV - Mean: " << mean_val_cv << ", Min: " << min_val_cv << ", Max: " << max_val_cv << ", Type: " << img.type() << ", Channels: " << img.channels() << std::endl;
             
             // Convert to 8-bit for display
             cv::Mat save_img;
@@ -994,7 +1013,7 @@ cv::Mat InfiniteISP::run_pipeline(bool visualize_output, bool save_intermediate)
         }
     }
 
-    return img;
+    return eigen_img;
 }
 
 void InfiniteISP::load_3a_statistics(bool awb_on, bool ae_on) {
@@ -1023,7 +1042,8 @@ cv::Mat InfiniteISP::execute_with_3a_statistics(bool save_intermediate) {
         load_3a_statistics(true, true);  // awb_on=true, ae_on=true
     }
 
-    return run_pipeline(true, save_intermediate);
+    hdr_isp::EigenImageU32 final_eigen = run_pipeline(true, save_intermediate);
+    return final_eigen.toOpenCV(CV_32S);
 }
 
 void InfiniteISP::execute(const std::string& img_path, bool save_intermediate) {
@@ -1051,7 +1071,8 @@ void InfiniteISP::execute(const std::string& img_path, bool save_intermediate) {
     std::cout << "About to run pipeline..." << std::endl;
     cv::Mat final_img;
     if (!render_3a_) {
-        final_img = run_pipeline(true, save_intermediate);
+        hdr_isp::EigenImageU32 final_eigen = run_pipeline(true, save_intermediate);
+        final_img = final_eigen.toOpenCV(CV_32S);
     }
     else {
         final_img = execute_with_3a_statistics(save_intermediate);
