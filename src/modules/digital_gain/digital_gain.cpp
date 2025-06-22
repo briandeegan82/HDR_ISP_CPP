@@ -9,7 +9,7 @@ namespace fs = std::filesystem;
 
 DigitalGain::DigitalGain(const hdr_isp::EigenImageU32& img, const YAML::Node& platform,
                         const YAML::Node& sensor_info, const YAML::Node& parm_dga)
-    : img_(img)
+    : img_(img.clone())
     , platform_(platform)
     , sensor_info_(sensor_info)
     , parm_dga_(parm_dga)
@@ -49,12 +49,26 @@ DigitalGain::DigitalGain(const hdr_isp::EigenImageU32& img, const YAML::Node& pl
     }
 }
 
-hdr_isp::EigenImageU32 DigitalGain::apply_digital_gain_eigen() {
+hdr_isp::EigenImageU32 DigitalGain::apply_digital_gain_eigen(const hdr_isp::EigenImageU32& img) {
     // Get output bit depth from sensor info
     int output_bit_depth = sensor_info_["output_bit_depth"].as<int>();
     
-    // Start with the input EigenImageU32
-    hdr_isp::EigenImageU32 eigen_img = img_;
+    // Debug output
+    if (is_debug_) {
+        std::cout << "DigitalGain Eigen - Parameters:" << std::endl;
+        std::cout << "  Output bit depth: " << output_bit_depth << std::endl;
+        std::cout << "  Is auto: " << (is_auto_ ? "true" : "false") << std::endl;
+        std::cout << "  Current gain index: " << current_gain_ << std::endl;
+        std::cout << "  AE feedback: " << ae_feedback_ << std::endl;
+        std::cout << "  Gains array size: " << gains_array_.size() << std::endl;
+        std::cout << "  Image size: " << img.cols() << "x" << img.rows() << std::endl;
+        
+        // Print input image statistics
+        uint32_t min_val = img.min();
+        uint32_t max_val_input = img.max();
+        float mean_val = img.mean();
+        std::cout << "DigitalGain Eigen - Input image - Mean: " << mean_val << ", Min: " << min_val << ", Max: " << max_val_input << std::endl;
+    }
 
     // Apply gains based on AE feedback
     if (is_auto_) {
@@ -71,55 +85,67 @@ hdr_isp::EigenImageU32 DigitalGain::apply_digital_gain_eigen() {
     // Apply the selected gain with proper precision
     float gain = gains_array_[current_gain_];
     
+    if (is_debug_) {
+        std::cout << "DigitalGain Eigen - Applied Gain = " << gain << std::endl;
+    }
+    
     // Convert to float for precise multiplication, then back to uint32
-    Eigen::MatrixXf float_img = eigen_img.data().cast<float>();
+    Eigen::MatrixXf float_img = img.data().cast<float>();
     float_img = float_img * gain;
     
     // Convert back to uint32 - preserve full dynamic range for HDR processing
     Eigen::Matrix<uint32_t, Eigen::Dynamic, Eigen::Dynamic> uint32_img = 
         float_img.cast<uint32_t>();
 
-    if (is_debug_) {
-        std::cout << "   - DG  - Applied Gain = " << gain << std::endl;
-    }
-
+    // Create EigenImageU32 from the processed matrix
+    hdr_isp::EigenImageU32 result(uint32_img);
+    
     // For HDR ISP pipeline, only clamp to prevent overflow, not to output bit depth
     // This preserves the full dynamic range for subsequent HDR processing stages
     
     // Only clamp to prevent uint32 overflow (2^32 - 1)
     uint32_t max_val = 4294967295U; // 2^32 - 1
-    
-    // Create EigenImageU32 from the processed matrix
-    hdr_isp::EigenImageU32 result(uint32_img);
     result = result.clip(0, max_val);
+    
+    if (is_debug_) {
+        // Print output image statistics
+        uint32_t min_val_out = result.min();
+        uint32_t max_val_out = result.max();
+        float mean_val_out = result.mean();
+        std::cout << "DigitalGain Eigen - Output image - Mean: " << mean_val_out << ", Min: " << min_val_out << ", Max: " << max_val_out << std::endl;
+    }
 
     return result;
 }
 
-void DigitalGain::save() {
+void DigitalGain::save(const std::string& filename_tag) {
     if (is_save_) {
-        // Convert to OpenCV only for saving if needed
-        cv::Mat opencv_img = img_.toOpenCV(CV_32SC1);
-        std::string output_path = "out_frames/intermediate/Out_digital_gain_" + 
+        std::string output_path = "out_frames/intermediate/" + filename_tag + 
                                  std::to_string(img_.cols()) + "x" + std::to_string(img_.rows()) + ".png";
-        cv::imwrite(output_path, opencv_img);
+        // Convert to OpenCV for saving
+        cv::Mat save_img = img_.toOpenCV(CV_32S);
+        cv::imwrite(output_path, save_img);
     }
 }
 
 std::pair<hdr_isp::EigenImageU32, float> DigitalGain::execute() {
     float applied_gain = gains_array_[current_gain_];
     
-    if (is_auto_) {
-        auto start = std::chrono::high_resolution_clock::now();
-        
-        img_ = apply_digital_gain_eigen();
-        
-        auto end = std::chrono::high_resolution_clock::now();
-        auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
-        
-        if (is_debug_) {
-            std::cout << "  Execution time: " << duration.count() / 1000.0 << "s" << std::endl;
-        }
+    auto start = std::chrono::high_resolution_clock::now();
+    
+    // Apply digital gain using Eigen
+    img_ = apply_digital_gain_eigen(img_);
+    
+    auto end = std::chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+    
+    if (is_debug_) {
+        std::cout << "  Execution time: " << duration.count() / 1000.0 << "s" << std::endl;
+    }
+
+    // Save intermediate results if enabled
+    if (is_save_) {
+        save("digital_gain_");
     }
 
     return {img_, applied_gain};

@@ -7,8 +7,8 @@
 
 namespace fs = std::filesystem;
 
-PiecewiseCurve::PiecewiseCurve(cv::Mat& img, const YAML::Node& platform, const YAML::Node& sensor_info, const YAML::Node& parm_cmpd)
-    : img_(img)
+PiecewiseCurve::PiecewiseCurve(const hdr_isp::EigenImageU32& img, const YAML::Node& platform, const YAML::Node& sensor_info, const YAML::Node& parm_cmpd)
+    : img_(img.clone())
     , platform_(platform)
     , sensor_info_(sensor_info)
     , parm_cmpd_(parm_cmpd)
@@ -18,7 +18,6 @@ PiecewiseCurve::PiecewiseCurve(cv::Mat& img, const YAML::Node& platform, const Y
     , companded_pout_(parm_cmpd["companded_pout"].as<std::vector<int>>())
     , is_save_(parm_cmpd["is_save"].as<bool>())
     , is_debug_(parm_cmpd["is_debug"].as<bool>())
-    , use_eigen_(true) // Use Eigen by default
 {
 }
 
@@ -57,94 +56,85 @@ std::vector<double> PiecewiseCurve::generate_decompanding_lut(
     return lut;
 }
 
-void PiecewiseCurve::save() {
+void PiecewiseCurve::save(const std::string& filename_tag) {
     if (is_save_) {
-        std::string output_path = "out_frames/intermediate/Out_decompanding_" + 
-            std::to_string(img_.cols) + "x" + std::to_string(img_.rows) + "_" +
+        std::string output_path = "out_frames/intermediate/" + filename_tag + 
+            std::to_string(img_.cols()) + "x" + std::to_string(img_.rows()) + "_" +
             std::to_string(bit_depth_) + "bits_" +
             sensor_info_["bayer_pattern"].as<std::string>() + ".png";
-        cv::imwrite(output_path, img_);
+        // Convert to OpenCV for saving
+        cv::Mat save_img = img_.toOpenCV(CV_32S);
+        cv::imwrite(output_path, save_img);
     }
 }
 
-cv::Mat PiecewiseCurve::execute() {
-    if (enable_) {
-        auto start = std::chrono::high_resolution_clock::now();
-        
-        if (use_eigen_) {
-            hdr_isp::EigenImageU32 result = execute_eigen();
-            img_ = result.toOpenCV(img_.type());
-        } else {
-            img_ = execute_opencv();
-        }
-        
-        auto end = std::chrono::high_resolution_clock::now();
-        auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
-        
-        if (is_debug_) {
-            std::cout << "  Execution time: " << duration.count() / 1000.0 << "s" << std::endl;
-        }
+hdr_isp::EigenImageU32 PiecewiseCurve::execute() {
+    if (!enable_) {
+        return img_;
+    }
+
+    auto start = std::chrono::high_resolution_clock::now();
+    
+    // Apply decompanding using Eigen
+    img_ = apply_decompanding_eigen(img_);
+    
+    auto end = std::chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+    
+    if (is_debug_) {
+        std::cout << "  Execution time: " << duration.count() / 1000.0 << "s" << std::endl;
+    }
+
+    // Save intermediate results if enabled
+    if (is_save_) {
+        save("decompanding_");
     }
 
     return img_;
 }
 
-cv::Mat PiecewiseCurve::execute_opencv() {
+hdr_isp::EigenImageU32 PiecewiseCurve::apply_decompanding_eigen(const hdr_isp::EigenImageU32& img) {
     // Generate decompanding LUT
     std::vector<double> lut = generate_decompanding_lut(
         companded_pin_,
         companded_pout_,
         companded_pin_.back()
     );
-
-    // Convert image to float for processing
-    cv::Mat img_float;
-    img_.convertTo(img_float, CV_32F);
-
-    // Apply LUT to each pixel
-    for (int i = 0; i < img_float.rows; ++i) {
-        for (int j = 0; j < img_float.cols; ++j) {
-            int pixel_value = static_cast<int>(img_float.at<float>(i, j));
-            img_float.at<float>(i, j) = lut[pixel_value];
-        }
+    
+    int rows = img.rows();
+    int cols = img.cols();
+    
+    // Debug output
+    if (is_debug_) {
+        std::cout << "PWC Eigen - Parameters:" << std::endl;
+        std::cout << "  Bit depth: " << bit_depth_ << std::endl;
+        std::cout << "  LUT size: " << lut.size() << std::endl;
+        std::cout << "  Image size: " << cols << "x" << rows << std::endl;
+        
+        // Print input image statistics
+        uint32_t min_val = img.min();
+        uint32_t max_val_input = img.max();
+        float mean_val = img.mean();
+        std::cout << "PWC Eigen - Input image - Mean: " << mean_val << ", Min: " << min_val << ", Max: " << max_val_input << std::endl;
     }
-
-    // Subtract pedestal and clip negative values
-    double pedestal = parm_cmpd_["pedestal"].as<double>();
-    cv::subtract(img_float, cv::Scalar(pedestal), img_float);
-    cv::max(img_float, 0.0, img_float);
-
-    // Convert back to original type
-    img_float.convertTo(img_, CV_32S);
-
-    return img_;
-}
-
-hdr_isp::EigenImageU32 PiecewiseCurve::execute_eigen() {
-    std::vector<double> lut = generate_decompanding_lut(
-        companded_pin_,
-        companded_pout_,
-        companded_pin_.back()
-    );
-    hdr_isp::EigenImageU32 eigen_img = hdr_isp::EigenImageU32::fromOpenCV(img_);
-    int rows = eigen_img.rows();
-    int cols = eigen_img.cols();
+    
+    hdr_isp::EigenImageU32 result = img.clone();
     
     // Apply LUT to each pixel using Eigen
     for (int i = 0; i < rows; ++i) {
         for (int j = 0; j < cols; ++j) {
-            uint32_t pixel_value = eigen_img.data()(i, j);
+            uint32_t pixel_value = result.data()(i, j);
             if (pixel_value < lut.size()) {
-                eigen_img.data()(i, j) = static_cast<uint32_t>(lut[pixel_value]);
+                result.data()(i, j) = static_cast<uint32_t>(lut[pixel_value]);
             } else {
-                eigen_img.data()(i, j) = 0;
+                result.data()(i, j) = 0;
             }
         }
     }
     
     // Subtract pedestal and clip negative values
     uint32_t pedestal = static_cast<uint32_t>(parm_cmpd_["pedestal"].as<double>());
-    eigen_img = eigen_img - pedestal;
+    result = result - pedestal;
     
     // For early modules, clamp to 2^32 when bit depth is 32, otherwise use the configured bit depth
     uint32_t max_val;
@@ -154,7 +144,15 @@ hdr_isp::EigenImageU32 PiecewiseCurve::execute_eigen() {
         max_val = (1U << bit_depth_) - 1;
     }
     
-    eigen_img = eigen_img.clip(0, max_val);
+    result = result.clip(0, max_val);
     
-    return eigen_img;
+    if (is_debug_) {
+        // Print output image statistics
+        uint32_t min_val_out = result.min();
+        uint32_t max_val_out = result.max();
+        float mean_val_out = result.mean();
+        std::cout << "PWC Eigen - Output image - Mean: " << mean_val_out << ", Min: " << min_val_out << ", Max: " << max_val_out << std::endl;
+    }
+    
+    return result;
 } 

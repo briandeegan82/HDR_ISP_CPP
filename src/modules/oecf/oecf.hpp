@@ -1,27 +1,25 @@
 #pragma once
 
-#include <opencv2/opencv.hpp>
 #include <string>
+#include <vector>
 #include <yaml-cpp/yaml.h>
 #include "../../common/eigen_utils.hpp"
 
 class OECF {
 public:
-    OECF(cv::Mat& img, const YAML::Node& platform, const YAML::Node& sensor_info, const YAML::Node& parm_oecf);
+    OECF(const hdr_isp::EigenImageU32& img, const YAML::Node& platform, const YAML::Node& sensor_info, const YAML::Node& parm_oecf);
 
-    cv::Mat execute();
+    hdr_isp::EigenImageU32 execute();
 
 private:
-    cv::Mat apply_oecf_opencv();
-    hdr_isp::EigenImageU32 apply_oecf_eigen();
-    void save();
+    hdr_isp::EigenImageU32 apply_oecf_eigen(const hdr_isp::EigenImageU32& img);
+    void save(const std::string& filename_tag);
 
-    cv::Mat& img_;
+    hdr_isp::EigenImageU32 img_;
     const YAML::Node& platform_;
     const YAML::Node& sensor_info_;
     const YAML::Node& parm_oecf_;
     bool enable_;
     bool is_save_;
     bool is_debug_;
-    bool use_eigen_; // Flag to choose between Eigen and OpenCV implementation
 }; 

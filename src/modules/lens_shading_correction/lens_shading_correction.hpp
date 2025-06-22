@@ -1,25 +1,25 @@
 #pragma once
 
-#include <opencv2/opencv.hpp>
 #include <string>
 #include <yaml-cpp/yaml.h>
 #include "../../common/eigen_utils.hpp"
 
 class LensShadingCorrection {
 public:
-    LensShadingCorrection(const cv::Mat& img, const YAML::Node& platform,
+    LensShadingCorrection(const hdr_isp::EigenImageU32& img, const YAML::Node& platform,
                           const YAML::Node& sensor_info, const YAML::Node& parm_lsc);
 
-    cv::Mat execute();
+    hdr_isp::EigenImageU32 execute();
 
 private:
-    cv::Mat apply_lsc_opencv();
-    hdr_isp::EigenImageU32 apply_lsc_eigen();
+    hdr_isp::EigenImageU32 apply_lsc_eigen(const hdr_isp::EigenImageU32& img);
+    void save(const std::string& filename_tag);
 
-    cv::Mat img_;
+    hdr_isp::EigenImageU32 img_;
     YAML::Node platform_;
     YAML::Node sensor_info_;
     YAML::Node parm_lsc_;
     bool enable_;
-    bool use_eigen_;
+    bool is_save_;
+    bool is_debug_;
 }; 

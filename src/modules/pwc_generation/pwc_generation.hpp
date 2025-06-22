@@ -1,6 +1,5 @@
 #pragma once
 
-#include <opencv2/opencv.hpp>
 #include <string>
 #include <vector>
 #include <yaml-cpp/yaml.h>
@@ -8,9 +7,9 @@
 
 class PiecewiseCurve {
 public:
-    PiecewiseCurve(cv::Mat& img, const YAML::Node& platform, const YAML::Node& sensor_info, const YAML::Node& parm_cmpd);
+    PiecewiseCurve(const hdr_isp::EigenImageU32& img, const YAML::Node& platform, const YAML::Node& sensor_info, const YAML::Node& parm_cmpd);
 
-    cv::Mat execute();
+    hdr_isp::EigenImageU32 execute();
 
 private:
     static std::vector<double> generate_decompanding_lut(
@@ -18,12 +17,11 @@ private:
         const std::vector<int>& companded_pout,
         int max_input_value = 4095
     );
-    void save();
+    void save(const std::string& filename_tag);
 
-    cv::Mat execute_opencv();
-    hdr_isp::EigenImageU32 execute_eigen();
+    hdr_isp::EigenImageU32 apply_decompanding_eigen(const hdr_isp::EigenImageU32& img);
 
-    cv::Mat& img_;
+    hdr_isp::EigenImageU32 img_;
     const YAML::Node& platform_;
     const YAML::Node& sensor_info_;
     const YAML::Node& parm_cmpd_;
@@ -33,5 +31,4 @@ private:
     std::vector<int> companded_pout_;
     bool is_save_;
     bool is_debug_;
-    bool use_eigen_; // Flag to choose between Eigen and OpenCV implementation
 }; 

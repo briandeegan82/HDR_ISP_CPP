@@ -13,8 +13,8 @@ public:
     std::pair<hdr_isp::EigenImageU32, float> execute();
 
 private:
-    hdr_isp::EigenImageU32 apply_digital_gain_eigen();
-    void save();
+    hdr_isp::EigenImageU32 apply_digital_gain_eigen(const hdr_isp::EigenImageU32& img);
+    void save(const std::string& filename_tag);
 
     hdr_isp::EigenImageU32 img_;
     YAML::Node platform_;

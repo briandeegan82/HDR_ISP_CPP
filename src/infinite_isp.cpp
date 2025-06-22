@@ -319,24 +319,27 @@ hdr_isp::EigenImageU32 InfiniteISP::run_pipeline(bool visualize_output, bool sav
     // 1. Cropping
     std::cout << "Cropping" << std::endl;
     if (parm_cro_["is_enable"].as<bool>()) {
-        // Convert to OpenCV for crop module (since it doesn't have Eigen implementation yet)
-        opencv_img = eigen_img.toOpenCV(CV_32S);
-        Crop crop(opencv_img, config_["platform"], config_["sensor_info"], parm_cro_);
-        opencv_img = crop.execute();
-        eigen_img = hdr_isp::EigenImageU32::fromOpenCV(opencv_img);
+        // Use Eigen-based crop module directly
+        Crop crop(eigen_img, config_["platform"], config_["sensor_info"], parm_cro_);
+        eigen_img = crop.execute();
         
-        // Debug: Print image statistics after cropping
-        cv::minMaxLoc(opencv_img, &min_val_cv, &max_val_cv);
-        mean_val_cv = cv::mean(opencv_img);
+        // Debug: Print image statistics after cropping using Eigen
+        uint32_t min_val = eigen_img.min();
+        uint32_t max_val = eigen_img.max();
+        float mean_val = eigen_img.mean();
         std::cout << "=== AFTER CROPPING ===" << std::endl;
-        std::cout << "Type: " << opencv_img.type() << std::endl;
-        std::cout << "Min: " << min_val_cv << ", Mean: " << mean_val_cv[0] << ", Max: " << max_val_cv << std::endl;
-        std::cout << "Size: " << opencv_img.cols << "x" << opencv_img.rows << ", Channels: " << opencv_img.channels() << std::endl;
+        std::cout << "Type: EigenImageU32 (uint32_t)" << std::endl;
+        std::cout << "Min: " << min_val << ", Mean: " << mean_val << ", Max: " << max_val << std::endl;
+        std::cout << "Size: " << eigen_img.cols() << "x" << eigen_img.rows() << ", Channels: 1" << std::endl;
         std::cout << "=====================" << std::endl;
         
         if (save_intermediate) {
             fs::path output_path = intermediate_dir / "crop.png";
+            // Convert to OpenCV for saving
+            opencv_img = eigen_img.toOpenCV(CV_32S);
             // Debug: Print image statistics before saving
+            cv::minMaxLoc(opencv_img, &min_val_cv, &max_val_cv);
+            mean_val_cv = cv::mean(opencv_img);
             std::cout << "Crop - Mean: " << mean_val_cv[0] << ", Min: " << min_val_cv << ", Max: " << max_val_cv << ", Type: " << opencv_img.type() << std::endl;
             
             // Convert to 8-bit for display
@@ -393,24 +396,27 @@ hdr_isp::EigenImageU32 InfiniteISP::run_pipeline(bool visualize_output, bool sav
     // 3. Black level correction
     std::cout << "Black level correction" << std::endl;
     if (parm_blc_["is_enable"].as<bool>()) {
-        // Convert to OpenCV for black level correction module
-        opencv_img = eigen_img.toOpenCV(CV_32S);
-        BlackLevelCorrection blc(opencv_img, config_["sensor_info"], parm_blc_);
-        opencv_img = blc.execute();
-        eigen_img = hdr_isp::EigenImageU32::fromOpenCV(opencv_img);
+        // Use Eigen-based black level correction module directly
+        BlackLevelCorrection blc(eigen_img, config_["sensor_info"], parm_blc_);
+        eigen_img = blc.execute();
         
-        // Debug: Print image statistics after black level correction
-        cv::minMaxLoc(opencv_img, &min_val_cv, &max_val_cv);
-        mean_val_cv = cv::mean(opencv_img);
+        // Debug: Print image statistics after black level correction using Eigen
+        uint32_t min_val = eigen_img.min();
+        uint32_t max_val = eigen_img.max();
+        float mean_val = eigen_img.mean();
         std::cout << "=== AFTER BLACK LEVEL CORRECTION ===" << std::endl;
-        std::cout << "Type: " << opencv_img.type() << std::endl;
-        std::cout << "Min: " << min_val_cv << ", Mean: " << mean_val_cv[0] << ", Max: " << max_val_cv << std::endl;
-        std::cout << "Size: " << opencv_img.cols << "x" << opencv_img.rows << ", Channels: " << opencv_img.channels() << std::endl;
+        std::cout << "Type: EigenImageU32 (uint32_t)" << std::endl;
+        std::cout << "Min: " << min_val << ", Mean: " << mean_val << ", Max: " << max_val << std::endl;
+        std::cout << "Size: " << eigen_img.cols() << "x" << eigen_img.rows() << ", Channels: 1" << std::endl;
         std::cout << "===================================" << std::endl;
         
         if (save_intermediate) {
             fs::path output_path = intermediate_dir / "black_level_correction.png";
+            // Convert to OpenCV for saving
+            opencv_img = eigen_img.toOpenCV(CV_32S);
             // Debug: Print image statistics before saving
+            cv::minMaxLoc(opencv_img, &min_val_cv, &max_val_cv);
+            mean_val_cv = cv::mean(opencv_img);
             std::cout << "BLC - Mean: " << mean_val_cv[0] << ", Min: " << min_val_cv << ", Max: " << max_val_cv << ", Type: " << opencv_img.type() << std::endl;
             
             // Convert to 8-bit for display
@@ -430,24 +436,27 @@ hdr_isp::EigenImageU32 InfiniteISP::run_pipeline(bool visualize_output, bool sav
     // 4. Decompanding (Piecewise curve)
     std::cout << "Decompanding (Piecewise curve)" << std::endl;
     if (parm_cmpd_["is_enable"].as<bool>()) {
-        // Convert to OpenCV for piecewise curve module
-        opencv_img = eigen_img.toOpenCV(CV_32S);
-        PiecewiseCurve pwc(opencv_img, config_["platform"], config_["sensor_info"], parm_cmpd_);
-        opencv_img = pwc.execute();
-        eigen_img = hdr_isp::EigenImageU32::fromOpenCV(opencv_img);
+        // Use Eigen-based piecewise curve module directly
+        PiecewiseCurve pwc(eigen_img, config_["platform"], config_["sensor_info"], parm_cmpd_);
+        eigen_img = pwc.execute();
         
-        // Debug: Print image statistics after decompanding
-        cv::minMaxLoc(opencv_img, &min_val_cv, &max_val_cv);
-        mean_val_cv = cv::mean(opencv_img);
+        // Debug: Print image statistics after decompanding using Eigen
+        uint32_t min_val = eigen_img.min();
+        uint32_t max_val = eigen_img.max();
+        float mean_val = eigen_img.mean();
         std::cout << "=== AFTER DECOMPANDING ===" << std::endl;
-        std::cout << "Type: " << opencv_img.type() << std::endl;
-        std::cout << "Min: " << min_val_cv << ", Mean: " << mean_val_cv[0] << ", Max: " << max_val_cv << std::endl;
-        std::cout << "Size: " << opencv_img.cols << "x" << opencv_img.rows << ", Channels: " << opencv_img.channels() << std::endl;
+        std::cout << "Type: EigenImageU32 (uint32_t)" << std::endl;
+        std::cout << "Min: " << min_val << ", Mean: " << mean_val << ", Max: " << max_val << std::endl;
+        std::cout << "Size: " << eigen_img.cols() << "x" << eigen_img.rows() << ", Channels: 1" << std::endl;
         std::cout << "=========================" << std::endl;
         
         if (save_intermediate) {
             fs::path output_path = intermediate_dir / "piecewise_curve.png";
+            // Convert to OpenCV for saving
+            opencv_img = eigen_img.toOpenCV(CV_32S);
             // Debug: Print image statistics before saving
+            cv::minMaxLoc(opencv_img, &min_val_cv, &max_val_cv);
+            mean_val_cv = cv::mean(opencv_img);
             std::cout << "PWC - Mean: " << mean_val_cv[0] << ", Min: " << min_val_cv << ", Max: " << max_val_cv << ", Type: " << opencv_img.type() << std::endl;
             
             // Convert to 8-bit for display
@@ -467,14 +476,24 @@ hdr_isp::EigenImageU32 InfiniteISP::run_pipeline(bool visualize_output, bool sav
     // 5. OECF
     std::cout << "OECF" << std::endl;
     if (parm_oec_["is_enable"].as<bool>()) {
-        // Convert to OpenCV for OECF module
-        opencv_img = eigen_img.toOpenCV(CV_32S);
-        OECF oecf(opencv_img, config_["platform"], config_["sensor_info"], parm_oec_);
-        opencv_img = oecf.execute();
-        eigen_img = hdr_isp::EigenImageU32::fromOpenCV(opencv_img);
+        // Use Eigen-based OECF module directly
+        OECF oecf(eigen_img, config_["platform"], config_["sensor_info"], parm_oec_);
+        eigen_img = oecf.execute();
+        
+        // Debug: Print image statistics after OECF using Eigen
+        uint32_t min_val = eigen_img.min();
+        uint32_t max_val = eigen_img.max();
+        float mean_val = eigen_img.mean();
+        std::cout << "=== AFTER OECF ===" << std::endl;
+        std::cout << "Type: EigenImageU32 (uint32_t)" << std::endl;
+        std::cout << "Min: " << min_val << ", Mean: " << mean_val << ", Max: " << max_val << std::endl;
+        std::cout << "Size: " << eigen_img.cols() << "x" << eigen_img.rows() << ", Channels: 1" << std::endl;
+        std::cout << "=================" << std::endl;
         
         if (save_intermediate) {
             fs::path output_path = intermediate_dir / "oecf.png";
+            // Convert to OpenCV for saving
+            opencv_img = eigen_img.toOpenCV(CV_32S);
             // Debug: Print image statistics before saving
             cv::minMaxLoc(opencv_img, &min_val_cv, &max_val_cv);
             mean_val_cv = cv::mean(opencv_img);
@@ -503,6 +522,17 @@ hdr_isp::EigenImageU32 InfiniteISP::run_pipeline(bool visualize_output, bool sav
         auto [result_eigen, gain] = dga.execute();
         eigen_img = result_eigen;
         dga_current_gain_ = gain;
+        
+        // Debug: Print image statistics after digital gain using Eigen
+        uint32_t min_val = eigen_img.min();
+        uint32_t max_val = eigen_img.max();
+        float mean_val = eigen_img.mean();
+        std::cout << "=== AFTER DIGITAL GAIN ===" << std::endl;
+        std::cout << "Type: EigenImageU32 (uint32_t)" << std::endl;
+        std::cout << "Min: " << min_val << ", Mean: " << mean_val << ", Max: " << max_val << std::endl;
+        std::cout << "Size: " << eigen_img.cols() << "x" << eigen_img.rows() << ", Channels: 1" << std::endl;
+        std::cout << "Applied gain: " << gain << std::endl;
+        std::cout << "=========================" << std::endl;
         
         if (save_intermediate) {
             fs::path output_path = intermediate_dir / "digital_gain.png";
@@ -535,14 +565,24 @@ hdr_isp::EigenImageU32 InfiniteISP::run_pipeline(bool visualize_output, bool sav
     // 7. Lens shading correction
     std::cout << "Lens shading correction" << std::endl;
     if (parm_lsc_["is_enable"].as<bool>()) {
-        // Convert to OpenCV for lens shading correction module
-        opencv_img = eigen_img.toOpenCV(CV_32S);
-        LensShadingCorrection lsc(opencv_img, config_["platform"], config_["sensor_info"], parm_lsc_);
-        opencv_img = lsc.execute();
-        eigen_img = hdr_isp::EigenImageU32::fromOpenCV(opencv_img);
+        // Use Eigen-based lens shading correction module directly
+        LensShadingCorrection lsc(eigen_img, config_["platform"], config_["sensor_info"], parm_lsc_);
+        eigen_img = lsc.execute();
+        
+        // Debug: Print image statistics after lens shading correction using Eigen
+        uint32_t min_val = eigen_img.min();
+        uint32_t max_val = eigen_img.max();
+        float mean_val = eigen_img.mean();
+        std::cout << "=== AFTER LENS SHADING CORRECTION ===" << std::endl;
+        std::cout << "Type: EigenImageU32 (uint32_t)" << std::endl;
+        std::cout << "Min: " << min_val << ", Mean: " << mean_val << ", Max: " << max_val << std::endl;
+        std::cout << "Size: " << eigen_img.cols() << "x" << eigen_img.rows() << ", Channels: 1" << std::endl;
+        std::cout << "====================================" << std::endl;
         
         if (save_intermediate) {
             fs::path output_path = intermediate_dir / "lens_shading_correction.png";
+            // Convert to OpenCV for saving
+            opencv_img = eigen_img.toOpenCV(CV_32S);
             // Debug: Print image statistics before saving
             cv::minMaxLoc(opencv_img, &min_val_cv, &max_val_cv);
             mean_val_cv = cv::mean(opencv_img);
@@ -565,29 +605,53 @@ hdr_isp::EigenImageU32 InfiniteISP::run_pipeline(bool visualize_output, bool sav
     // 8. Bayer noise reduction
     std::cout << "Bayer noise reduction" << std::endl;
     if (parm_bnr_["is_enable"].as<bool>()) {
-        // Convert to OpenCV for bayer noise reduction module
-        opencv_img = eigen_img.toOpenCV(CV_32S);
-        BayerNoiseReduction bnr(opencv_img, config_["sensor_info"], parm_bnr_);
-        opencv_img = bnr.execute();
-        eigen_img = hdr_isp::EigenImageU32::fromOpenCV(opencv_img);
-        
-        if (save_intermediate) {
-            fs::path output_path = intermediate_dir / "bayer_noise_reduction.png";
-            // Debug: Print image statistics before saving
-            cv::minMaxLoc(opencv_img, &min_val_cv, &max_val_cv);
-            mean_val_cv = cv::mean(opencv_img);
-            std::cout << "BNR - Mean: " << mean_val_cv[0] << ", Min: " << min_val_cv << ", Max: " << max_val_cv << ", Type: " << opencv_img.type() << std::endl;
+        try {
+            std::cout << "BNR - Starting bayer noise reduction..." << std::endl;
             
-            // Convert to 8-bit for display
-            cv::Mat save_img;
-            if (opencv_img.type() == CV_32F) {
-                opencv_img.convertTo(save_img, CV_8U, 255.0);
-            } else if (opencv_img.type() == CV_16U) {
-                opencv_img.convertTo(save_img, CV_8U, 255.0 / 65535.0);
-            } else {
-                opencv_img.convertTo(save_img, CV_8U, 255.0 / ((1 << sensor_info_.bit_depth) - 1));
+            // Use Eigen-based bayer noise reduction module directly
+            BayerNoiseReduction bnr(eigen_img, config_["sensor_info"], parm_bnr_);
+            eigen_img = bnr.execute();
+            
+            std::cout << "BNR - Bayer noise reduction completed successfully" << std::endl;
+            
+            // Debug: Print image statistics after bayer noise reduction using Eigen
+            uint32_t min_val = eigen_img.min();
+            uint32_t max_val = eigen_img.max();
+            float mean_val = eigen_img.mean();
+            std::cout << "=== AFTER BAYER NOISE REDUCTION ===" << std::endl;
+            std::cout << "Type: EigenImageU32 (uint32_t)" << std::endl;
+            std::cout << "Min: " << min_val << ", Mean: " << mean_val << ", Max: " << max_val << std::endl;
+            std::cout << "Size: " << eigen_img.cols() << "x" << eigen_img.rows() << ", Channels: 1" << std::endl;
+            std::cout << "==================================" << std::endl;
+            
+            if (save_intermediate) {
+                fs::path output_path = intermediate_dir / "bayer_noise_reduction.png";
+                // Convert to OpenCV for saving
+                opencv_img = eigen_img.toOpenCV(CV_32S);
+                // Debug: Print image statistics before saving
+                cv::minMaxLoc(opencv_img, &min_val_cv, &max_val_cv);
+                mean_val_cv = cv::mean(opencv_img);
+                std::cout << "BNR - Mean: " << mean_val_cv[0] << ", Min: " << min_val_cv << ", Max: " << max_val_cv << ", Type: " << opencv_img.type() << std::endl;
+                
+                // Convert to 8-bit for display
+                cv::Mat save_img;
+                if (opencv_img.type() == CV_32F) {
+                    opencv_img.convertTo(save_img, CV_8U, 255.0);
+                } else if (opencv_img.type() == CV_16U) {
+                    opencv_img.convertTo(save_img, CV_8U, 255.0 / 65535.0);
+                } else {
+                    opencv_img.convertTo(save_img, CV_8U, 255.0 / ((1 << sensor_info_.bit_depth) - 1));
+                }
+                cv::imwrite(output_path.string(), save_img);
             }
-            cv::imwrite(output_path.string(), save_img);
+        }
+        catch (const std::exception& e) {
+            std::cerr << "BNR - Exception in bayer noise reduction: " << e.what() << std::endl;
+            std::cout << "BNR - Continuing with original image..." << std::endl;
+        }
+        catch (...) {
+            std::cerr << "BNR - Unknown exception in bayer noise reduction" << std::endl;
+            std::cout << "BNR - Continuing with original image..." << std::endl;
         }
     }
 
