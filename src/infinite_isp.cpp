@@ -660,15 +660,15 @@ hdr_isp::EigenImageU32 InfiniteISP::run_pipeline(bool visualize_output, bool sav
     std::cout << "Auto White Balance" << std::endl;
     if (parm_awb_["is_enable"].as<bool>()) {
         std::cout << "Applying auto white balance..." << std::endl;
-        // Convert to OpenCV for auto white balance module
-        opencv_img = eigen_img.toOpenCV(CV_32S);
-        AutoWhiteBalance awb(opencv_img, config_["sensor_info"], parm_awb_);
+        // Use Eigen-based auto white balance module directly
+        AutoWhiteBalance awb(eigen_img, config_["sensor_info"], parm_awb_);
         auto [rgain, bgain] = awb.execute();
         awb_gains_ = {static_cast<float>(rgain), static_cast<float>(bgain)};
-        eigen_img = hdr_isp::EigenImageU32::fromOpenCV(opencv_img);
         
         if (save_intermediate) {
             fs::path output_path = intermediate_dir / "auto_white_balance.png";
+            // Convert to OpenCV for saving
+            opencv_img = eigen_img.toOpenCV(CV_32S);
             // Debug: Print image statistics before saving
             cv::minMaxLoc(opencv_img, &min_val_cv, &max_val_cv);
             mean_val_cv = cv::mean(opencv_img);
@@ -692,14 +692,14 @@ hdr_isp::EigenImageU32 InfiniteISP::run_pipeline(bool visualize_output, bool sav
     std::cout << "White balancing" << std::endl;
     if (parm_wbc_["is_enable"].as<bool>()) {
         std::cout << "Applying white balance..." << std::endl;
-        // Convert to OpenCV for white balance module
-        opencv_img = eigen_img.toOpenCV(CV_32S);
-        WhiteBalance wb(opencv_img, config_["platform"], config_["sensor_info"], parm_wbc_);
-        opencv_img = wb.execute();
-        eigen_img = hdr_isp::EigenImageU32::fromOpenCV(opencv_img);
+        // Use Eigen-based white balance module directly
+        WhiteBalance wb(eigen_img, config_["platform"], config_["sensor_info"], parm_wbc_);
+        eigen_img = wb.execute();
         
         if (save_intermediate) {
             fs::path output_path = intermediate_dir / "white_balance.png";
+            // Convert to OpenCV for saving
+            opencv_img = eigen_img.toOpenCV(CV_32S);
             // Debug: Print image statistics before saving
             cv::minMaxLoc(opencv_img, &min_val_cv, &max_val_cv);
             mean_val_cv = cv::mean(opencv_img);
@@ -753,12 +753,12 @@ hdr_isp::EigenImageU32 InfiniteISP::run_pipeline(bool visualize_output, bool sav
     std::cout << "CFA demosaicing" << std::endl;
     if (parm_dem_["is_enable"].as<bool>()) {
         std::cout << "Applying demosaic..." << std::endl;
-        // Convert Eigen to OpenCV for demosaic
-        opencv_img = eigen_img.toOpenCV(CV_32S);
-        DemosaicAlgorithm algorithm = parm_dem_["algorithm"].as<std::string>() == "opencv" ? 
-            DemosaicAlgorithm::OPENCV : DemosaicAlgorithm::MALVAR;
-        Demosaic demosaic(opencv_img, sensor_info_.bayer_pattern, sensor_info_.bit_depth, save_intermediate, algorithm);
-        img = demosaic.execute();
+        // Use Eigen-based demosaic module directly
+        Demosaic demosaic(eigen_img, sensor_info_.bayer_pattern, sensor_info_.bit_depth, save_intermediate);
+        hdr_isp::EigenImage3C eigen_result = demosaic.execute();
+        
+        // Convert EigenImage3C to cv::Mat for the rest of the pipeline
+        img = eigen_result.toOpenCV(CV_32FC3);
         
         if (save_intermediate) {
             fs::path output_path = intermediate_dir / "demosaic.png";

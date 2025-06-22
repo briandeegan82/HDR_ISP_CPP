@@ -1,9 +1,10 @@
 #include "white_balance.hpp"
 #include "../../common/common.hpp"
+#include <opencv2/opencv.hpp>
 #include <chrono>
 #include <iostream>
 
-WhiteBalance::WhiteBalance(const cv::Mat& img, const YAML::Node& platform, const YAML::Node& sensor_info,
+WhiteBalance::WhiteBalance(const hdr_isp::EigenImageU32& img, const YAML::Node& platform, const YAML::Node& sensor_info,
                          const YAML::Node& parm_wbc)
     : img_(img)
     , platform_(platform)
@@ -17,20 +18,14 @@ WhiteBalance::WhiteBalance(const cv::Mat& img, const YAML::Node& platform, const
     bayer_ = sensor_info_["bayer_pattern"].as<std::string>();
     bpp_ = sensor_info_["bit_depth"].as<int>();
     raw_ = img.clone();
-    use_eigen_ = true; // Use Eigen by default
 }
 
-cv::Mat WhiteBalance::execute()
+hdr_isp::EigenImageU32 WhiteBalance::execute()
 {
     if (is_enable_) {
         std::cout << "White balancing = True" << std::endl;
         auto start = std::chrono::high_resolution_clock::now();
-        if (use_eigen_) {
-            hdr_isp::EigenImageU32 result = apply_wb_parameters_eigen();
-            img_ = result.toOpenCV(img_.type());
-        } else {
-            img_ = apply_wb_parameters_opencv();
-        }
+        img_ = apply_wb_parameters();
         auto end = std::chrono::high_resolution_clock::now();
         std::chrono::duration<double> duration = end - start;
         std::cout << "  Execution time: " << duration.count() << "s" << std::endl;
@@ -39,7 +34,7 @@ cv::Mat WhiteBalance::execute()
     return img_;
 }
 
-cv::Mat WhiteBalance::apply_wb_parameters_opencv()
+hdr_isp::EigenImageU32 WhiteBalance::apply_wb_parameters()
 {
     // Get config parameters
     float red_gain = parm_wbc_["r_gain"].as<float>();
@@ -50,152 +45,81 @@ cv::Mat WhiteBalance::apply_wb_parameters_opencv()
         std::cout << "   - WB  - blue gain: " << blue_gain << std::endl;
     }
 
-    // Convert to float32 for calculations
-    cv::Mat raw_float;
-    img_.convertTo(raw_float, CV_32F);
+    hdr_isp::EigenImageU32 result = img_.clone();
+    int rows = result.rows();
+    int cols = result.cols();
 
     // Apply gains based on Bayer pattern
     if (bayer_ == "rggb") {
         // Red pixels
-        for (int i = 0; i < raw_float.rows; i += 2) {
-            for (int j = 0; j < raw_float.cols; j += 2) {
-                raw_float.at<float>(i, j) *= red_gain;
+        for (int i = 0; i < rows; i += 2) {
+            for (int j = 0; j < cols; j += 2) {
+                result.data()(i, j) = static_cast<uint32_t>(std::round(result.data()(i, j) * red_gain));
             }
         }
         // Blue pixels
-        for (int i = 1; i < raw_float.rows; i += 2) {
-            for (int j = 1; j < raw_float.cols; j += 2) {
-                raw_float.at<float>(i, j) *= blue_gain;
+        for (int i = 1; i < rows; i += 2) {
+            for (int j = 1; j < cols; j += 2) {
+                result.data()(i, j) = static_cast<uint32_t>(std::round(result.data()(i, j) * blue_gain));
             }
         }
     }
     else if (bayer_ == "bggr") {
         // Blue pixels
-        for (int i = 0; i < raw_float.rows; i += 2) {
-            for (int j = 0; j < raw_float.cols; j += 2) {
-                raw_float.at<float>(i, j) *= blue_gain;
+        for (int i = 0; i < rows; i += 2) {
+            for (int j = 0; j < cols; j += 2) {
+                result.data()(i, j) = static_cast<uint32_t>(std::round(result.data()(i, j) * blue_gain));
             }
         }
         // Red pixels
-        for (int i = 1; i < raw_float.rows; i += 2) {
-            for (int j = 1; j < raw_float.cols; j += 2) {
-                raw_float.at<float>(i, j) *= red_gain;
+        for (int i = 1; i < rows; i += 2) {
+            for (int j = 1; j < cols; j += 2) {
+                result.data()(i, j) = static_cast<uint32_t>(std::round(result.data()(i, j) * red_gain));
             }
         }
     }
     else if (bayer_ == "grbg") {
         // Blue pixels
-        for (int i = 1; i < raw_float.rows; i += 2) {
-            for (int j = 0; j < raw_float.cols; j += 2) {
-                raw_float.at<float>(i, j) *= blue_gain;
+        for (int i = 1; i < rows; i += 2) {
+            for (int j = 0; j < cols; j += 2) {
+                result.data()(i, j) = static_cast<uint32_t>(std::round(result.data()(i, j) * blue_gain));
             }
         }
         // Red pixels
-        for (int i = 0; i < raw_float.rows; i += 2) {
-            for (int j = 1; j < raw_float.cols; j += 2) {
-                raw_float.at<float>(i, j) *= red_gain;
+        for (int i = 0; i < rows; i += 2) {
+            for (int j = 1; j < cols; j += 2) {
+                result.data()(i, j) = static_cast<uint32_t>(std::round(result.data()(i, j) * red_gain));
             }
         }
     }
     else if (bayer_ == "gbrg") {
         // Red pixels
-        for (int i = 1; i < raw_float.rows; i += 2) {
-            for (int j = 0; j < raw_float.cols; j += 2) {
-                raw_float.at<float>(i, j) *= red_gain;
+        for (int i = 1; i < rows; i += 2) {
+            for (int j = 0; j < cols; j += 2) {
+                result.data()(i, j) = static_cast<uint32_t>(std::round(result.data()(i, j) * red_gain));
             }
         }
         // Blue pixels
-        for (int i = 0; i < raw_float.rows; i += 2) {
-            for (int j = 1; j < raw_float.cols; j += 2) {
-                raw_float.at<float>(i, j) *= blue_gain;
+        for (int i = 0; i < rows; i += 2) {
+            for (int j = 1; j < cols; j += 2) {
+                result.data()(i, j) = static_cast<uint32_t>(std::round(result.data()(i, j) * blue_gain));
             }
         }
     }
 
-    // Clip values to valid range and convert back to original type
-    cv::Mat raw_whitebal;
-    double max_val = (1 << bpp_) - 1;
-    cv::threshold(raw_float, raw_float, max_val, max_val, cv::THRESH_TRUNC);
-    raw_float.convertTo(raw_whitebal, img_.type());
+    // Clip values to valid range
+    uint32_t max_val = (1U << bpp_) - 1;
+    result = result.cwiseMin(max_val);
 
-    return raw_whitebal;
-}
-
-hdr_isp::EigenImageU32 WhiteBalance::apply_wb_parameters_eigen()
-{
-    float red_gain = parm_wbc_["r_gain"].as<float>();
-    float blue_gain = parm_wbc_["b_gain"].as<float>();
-    if (is_debug_) {
-        std::cout << "   - WB  - red gain : " << red_gain << std::endl;
-        std::cout << "   - WB  - blue gain: " << blue_gain << std::endl;
-    }
-    
-    // Convert to integer gains for better performance
-    int red_gain_int = static_cast<int>(red_gain * 1000);
-    int blue_gain_int = static_cast<int>(blue_gain * 1000);
-    
-    hdr_isp::EigenImageU32 eigen_img = hdr_isp::EigenImageU32::fromOpenCV(img_);
-    int rows = eigen_img.rows();
-    int cols = eigen_img.cols();
-    
-    if (bayer_ == "rggb") {
-        for (int i = 0; i < rows; i += 2) {
-            for (int j = 0; j < cols; j += 2) {
-                eigen_img.data()(i, j) = (eigen_img.data()(i, j) * red_gain_int) / 1000;
-            }
-        }
-        for (int i = 1; i < rows; i += 2) {
-            for (int j = 1; j < cols; j += 2) {
-                eigen_img.data()(i, j) = (eigen_img.data()(i, j) * blue_gain_int) / 1000;
-            }
-        }
-    }
-    else if (bayer_ == "bggr") {
-        for (int i = 0; i < rows; i += 2) {
-            for (int j = 0; j < cols; j += 2) {
-                eigen_img.data()(i, j) = (eigen_img.data()(i, j) * blue_gain_int) / 1000;
-            }
-        }
-        for (int i = 1; i < rows; i += 2) {
-            for (int j = 1; j < cols; j += 2) {
-                eigen_img.data()(i, j) = (eigen_img.data()(i, j) * red_gain_int) / 1000;
-            }
-        }
-    }
-    else if (bayer_ == "grbg") {
-        for (int i = 1; i < rows; i += 2) {
-            for (int j = 0; j < cols; j += 2) {
-                eigen_img.data()(i, j) = (eigen_img.data()(i, j) * blue_gain_int) / 1000;
-            }
-        }
-        for (int i = 0; i < rows; i += 2) {
-            for (int j = 1; j < cols; j += 2) {
-                eigen_img.data()(i, j) = (eigen_img.data()(i, j) * red_gain_int) / 1000;
-            }
-        }
-    }
-    else if (bayer_ == "gbrg") {
-        for (int i = 1; i < rows; i += 2) {
-            for (int j = 0; j < cols; j += 2) {
-                eigen_img.data()(i, j) = (eigen_img.data()(i, j) * red_gain_int) / 1000;
-            }
-        }
-        for (int i = 0; i < rows; i += 2) {
-            for (int j = 1; j < cols; j += 2) {
-                eigen_img.data()(i, j) = (eigen_img.data()(i, j) * blue_gain_int) / 1000;
-            }
-        }
-    }
-    
-    int max_val = (1 << bpp_) - 1;
-    eigen_img = eigen_img.clip(0, max_val);
-    return eigen_img;
+    return result;
 }
 
 void WhiteBalance::save()
 {
     if (is_save_) {
         std::string filename = common::get_output_filename(platform_["in_file"].as<std::string>(), "Out_white_balance_");
-        common::save_image(img_, filename);
+        // Convert to OpenCV for saving
+        cv::Mat img_cv = img_.toOpenCV(CV_32S);
+        common::save_image(img_cv, filename);
     }
 } 

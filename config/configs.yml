@@ -105,8 +105,6 @@ white_balance:
 demosaic:
   is_enable: true
   is_save: true
-  algorithm: "opencv"
-  # opencv, malvar  
 
 color_correction_matrix:
   #Row sum to 1 convention

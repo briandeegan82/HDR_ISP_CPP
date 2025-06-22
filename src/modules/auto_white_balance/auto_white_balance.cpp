@@ -2,10 +2,11 @@
 #include "gray_world.hpp"
 #include "norm_gray_world.hpp"
 #include "pca.hpp"
+#include <opencv2/opencv.hpp>
 #include <chrono>
 #include <iostream>
 
-AutoWhiteBalance::AutoWhiteBalance(const cv::Mat& raw, const YAML::Node& sensor_info, const YAML::Node& parm_awb)
+AutoWhiteBalance::AutoWhiteBalance(const hdr_isp::EigenImageU32& raw, const YAML::Node& sensor_info, const YAML::Node& parm_awb)
     : raw_(raw)
     , sensor_info_(sensor_info)
     , parm_awb_(parm_awb)
@@ -16,73 +17,63 @@ AutoWhiteBalance::AutoWhiteBalance(const cv::Mat& raw, const YAML::Node& sensor_
     , overexposed_percentage_(parm_awb["overexposed_percentage"].as<float>())
     , bayer_(sensor_info["bayer_pattern"].as<std::string>())
     , algorithm_(parm_awb["algorithm"].as<std::string>())
-    , use_eigen_(true) // Use Eigen by default
 {
 }
 
 std::tuple<double, double> AutoWhiteBalance::determine_white_balance_gain()
 {
-    if (use_eigen_) {
-        return determine_white_balance_gain_eigen();
-    }
-    
-    // Original OpenCV implementation
-    // Convert to float for calculations
-    cv::Mat raw_float;
-    raw_.convertTo(raw_float, CV_32F);
-
-    // Extract Bayer pattern channels
-    int height = raw_float.rows;
-    int width = raw_float.cols;
+    // Extract Bayer pattern channels using Eigen
+    int height = raw_.rows();
+    int width = raw_.cols();
     std::vector<float> r_values, g_values, b_values;
 
     if (bayer_ == "rggb") {
         for (int i = 0; i < height; i += 2) {
             for (int j = 0; j < width; j += 2) {
-                r_values.push_back(raw_float.at<float>(i, j));
-                g_values.push_back(raw_float.at<float>(i, j + 1));
-                g_values.push_back(raw_float.at<float>(i + 1, j));
-                b_values.push_back(raw_float.at<float>(i + 1, j + 1));
+                r_values.push_back(static_cast<float>(raw_.data()(i, j)));
+                g_values.push_back(static_cast<float>(raw_.data()(i, j + 1)));
+                g_values.push_back(static_cast<float>(raw_.data()(i + 1, j)));
+                b_values.push_back(static_cast<float>(raw_.data()(i + 1, j + 1)));
             }
         }
     }
     else if (bayer_ == "bggr") {
         for (int i = 0; i < height; i += 2) {
             for (int j = 0; j < width; j += 2) {
-                b_values.push_back(raw_float.at<float>(i, j));
-                g_values.push_back(raw_float.at<float>(i, j + 1));
-                g_values.push_back(raw_float.at<float>(i + 1, j));
-                r_values.push_back(raw_float.at<float>(i + 1, j + 1));
+                b_values.push_back(static_cast<float>(raw_.data()(i, j)));
+                g_values.push_back(static_cast<float>(raw_.data()(i, j + 1)));
+                g_values.push_back(static_cast<float>(raw_.data()(i + 1, j)));
+                r_values.push_back(static_cast<float>(raw_.data()(i + 1, j + 1)));
             }
         }
     }
     else if (bayer_ == "grbg") {
         for (int i = 0; i < height; i += 2) {
             for (int j = 0; j < width; j += 2) {
-                g_values.push_back(raw_float.at<float>(i, j));
-                r_values.push_back(raw_float.at<float>(i, j + 1));
-                b_values.push_back(raw_float.at<float>(i + 1, j));
-                g_values.push_back(raw_float.at<float>(i + 1, j + 1));
+                g_values.push_back(static_cast<float>(raw_.data()(i, j)));
+                r_values.push_back(static_cast<float>(raw_.data()(i, j + 1)));
+                b_values.push_back(static_cast<float>(raw_.data()(i + 1, j)));
+                g_values.push_back(static_cast<float>(raw_.data()(i + 1, j + 1)));
             }
         }
     }
     else if (bayer_ == "gbrg") {
         for (int i = 0; i < height; i += 2) {
             for (int j = 0; j < width; j += 2) {
-                g_values.push_back(raw_float.at<float>(i, j));
-                b_values.push_back(raw_float.at<float>(i, j + 1));
-                r_values.push_back(raw_float.at<float>(i + 1, j));
-                g_values.push_back(raw_float.at<float>(i + 1, j + 1));
+                g_values.push_back(static_cast<float>(raw_.data()(i, j)));
+                b_values.push_back(static_cast<float>(raw_.data()(i, j + 1)));
+                r_values.push_back(static_cast<float>(raw_.data()(i + 1, j)));
+                g_values.push_back(static_cast<float>(raw_.data()(i + 1, j + 1)));
             }
         }
     }
 
-    // Create flattened image for algorithm input
-    flatten_img_ = cv::Mat(3, r_values.size(), CV_32F);
+    // Create flattened image for algorithm input using Eigen
+    flatten_img_ = Eigen::MatrixXf(3, r_values.size());
     for (size_t i = 0; i < r_values.size(); i++) {
-        flatten_img_.at<float>(0, i) = r_values[i];
-        flatten_img_.at<float>(1, i) = g_values[i];
-        flatten_img_.at<float>(2, i) = b_values[i];
+        flatten_img_(0, i) = r_values[i];
+        flatten_img_(1, i) = g_values[i];
+        flatten_img_(2, i) = b_values[i];
     }
 
     std::tuple<double, double> gains;
@@ -106,237 +97,98 @@ std::tuple<double, double> AutoWhiteBalance::determine_white_balance_gain()
         std::cout << "   - AWB - Bgain = " << bgain << std::endl;
     }
 
-    // Apply gains to the original Bayer pattern
-    cv::Mat result = raw_.clone();
-    result.convertTo(result, CV_32F);
-
-    // Create gain matrices for each color
-    cv::Mat r_gain_mat = cv::Mat::ones(result.size(), CV_32F) * rgain;
-    cv::Mat b_gain_mat = cv::Mat::ones(result.size(), CV_32F) * bgain;
-    cv::Mat g_gain_mat = cv::Mat::ones(result.size(), CV_32F);
-
-    // Apply gains based on Bayer pattern
-    if (bayer_ == "rggb") {
-        for (int i = 0; i < result.rows; i += 2) {
-            for (int j = 0; j < result.cols; j += 2) {
-                result.at<float>(i, j) *= rgain;      // R
-                result.at<float>(i, j + 1) *= 1.0;   // G
-                result.at<float>(i + 1, j) *= 1.0;   // G
-                result.at<float>(i + 1, j + 1) *= bgain; // B
-            }
-        }
-    }
-    else if (bayer_ == "bggr") {
-        for (int i = 0; i < result.rows; i += 2) {
-            for (int j = 0; j < result.cols; j += 2) {
-                result.at<float>(i, j) *= bgain;      // B
-                result.at<float>(i, j + 1) *= 1.0;   // G
-                result.at<float>(i + 1, j) *= 1.0;   // G
-                result.at<float>(i + 1, j + 1) *= rgain; // R
-            }
-        }
-    }
-    else if (bayer_ == "grbg") {
-        for (int i = 0; i < result.rows; i += 2) {
-            for (int j = 0; j < result.cols; j += 2) {
-                result.at<float>(i, j) *= 1.0;       // G
-                result.at<float>(i, j + 1) *= rgain; // R
-                result.at<float>(i + 1, j) *= bgain; // B
-                result.at<float>(i + 1, j + 1) *= 1.0; // G
-            }
-        }
-    }
-    else if (bayer_ == "gbrg") {
-        for (int i = 0; i < result.rows; i += 2) {
-            for (int j = 0; j < result.cols; j += 2) {
-                result.at<float>(i, j) *= 1.0;       // G
-                result.at<float>(i, j + 1) *= bgain; // B
-                result.at<float>(i + 1, j) *= rgain; // R
-                result.at<float>(i + 1, j + 1) *= 1.0; // G
-            }
-        }
-    }
-
-    // Clip values to valid range
-    double max_val = (1 << bit_depth_) - 1;
-    cv::threshold(result, result, max_val, max_val, cv::THRESH_TRUNC);
-
-    // Convert back to original type
-    cv::Mat result_final;
-    result.convertTo(result_final, raw_.type());
-    raw_ = result_final;
-
-    return {rgain, bgain};
-}
-
-std::tuple<double, double> AutoWhiteBalance::determine_white_balance_gain_eigen()
-{
-    // Convert to Eigen
-    hdr_isp::EigenImage eigen_raw = hdr_isp::opencv_to_eigen(raw_);
-    
-    // Extract Bayer pattern channels using Eigen
-    int height = eigen_raw.rows();
-    int width = eigen_raw.cols();
-    std::vector<float> r_values, g_values, b_values;
-
-    if (bayer_ == "rggb") {
-        for (int i = 0; i < height; i += 2) {
-            for (int j = 0; j < width; j += 2) {
-                r_values.push_back(eigen_raw.data()(i, j));
-                g_values.push_back(eigen_raw.data()(i, j + 1));
-                g_values.push_back(eigen_raw.data()(i + 1, j));
-                b_values.push_back(eigen_raw.data()(i + 1, j + 1));
-            }
-        }
-    }
-    else if (bayer_ == "bggr") {
-        for (int i = 0; i < height; i += 2) {
-            for (int j = 0; j < width; j += 2) {
-                b_values.push_back(eigen_raw.data()(i, j));
-                g_values.push_back(eigen_raw.data()(i, j + 1));
-                g_values.push_back(eigen_raw.data()(i + 1, j));
-                r_values.push_back(eigen_raw.data()(i + 1, j + 1));
-            }
-        }
-    }
-    else if (bayer_ == "grbg") {
-        for (int i = 0; i < height; i += 2) {
-            for (int j = 0; j < width; j += 2) {
-                g_values.push_back(eigen_raw.data()(i, j));
-                r_values.push_back(eigen_raw.data()(i, j + 1));
-                b_values.push_back(eigen_raw.data()(i + 1, j));
-                g_values.push_back(eigen_raw.data()(i + 1, j + 1));
-            }
-        }
-    }
-    else if (bayer_ == "gbrg") {
-        for (int i = 0; i < height; i += 2) {
-            for (int j = 0; j < width; j += 2) {
-                g_values.push_back(eigen_raw.data()(i, j));
-                b_values.push_back(eigen_raw.data()(i, j + 1));
-                r_values.push_back(eigen_raw.data()(i + 1, j));
-                g_values.push_back(eigen_raw.data()(i + 1, j + 1));
-            }
-        }
-    }
-
-    // Create flattened image for algorithm input (simplified)
-    // In a full implementation, you'd create a proper 3xN Eigen matrix
-    flatten_img_ = cv::Mat(3, r_values.size(), CV_32F);
-    for (size_t i = 0; i < r_values.size(); i++) {
-        flatten_img_.at<float>(0, i) = r_values[i];
-        flatten_img_.at<float>(1, i) = g_values[i];
-        flatten_img_.at<float>(2, i) = b_values[i];
-    }
-
-    std::tuple<double, double> gains;
-    if (algorithm_ == "norm_2") {
-        gains = apply_norm_gray_world_eigen();
-    }
-    else if (algorithm_ == "pca") {
-        gains = apply_pca_illuminant_estimation_eigen();
-    }
-    else {
-        gains = apply_gray_world_eigen();
-    }
-
-    // Ensure gains are at least 1.0
-    double rgain = std::max(1.0, std::get<0>(gains));
-    double bgain = std::max(1.0, std::get<1>(gains));
-
-    if (is_debug_) {
-        std::cout << "   - AWB Actual Gains (Eigen): " << std::endl;
-        std::cout << "   - AWB - RGain = " << rgain << std::endl;
-        std::cout << "   - AWB - Bgain = " << bgain << std::endl;
-    }
-
     // Apply gains to the original Bayer pattern using Eigen
-    hdr_isp::EigenImage result = eigen_raw;
+    hdr_isp::EigenImageU32 result = raw_.clone();
 
     // Apply gains based on Bayer pattern
     if (bayer_ == "rggb") {
         for (int i = 0; i < result.rows(); i += 2) {
             for (int j = 0; j < result.cols(); j += 2) {
-                result.data()(i, j) *= rgain;      // R
-                result.data()(i, j + 1) *= 1.0f;   // G
-                result.data()(i + 1, j) *= 1.0f;   // G
-                result.data()(i + 1, j + 1) *= bgain; // B
+                result.data()(i, j) = static_cast<uint32_t>(std::round(result.data()(i, j) * rgain));      // R
+                result.data()(i, j + 1) = result.data()(i, j + 1);   // G
+                result.data()(i + 1, j) = result.data()(i + 1, j);   // G
+                result.data()(i + 1, j + 1) = static_cast<uint32_t>(std::round(result.data()(i + 1, j + 1) * bgain)); // B
             }
         }
     }
     else if (bayer_ == "bggr") {
         for (int i = 0; i < result.rows(); i += 2) {
             for (int j = 0; j < result.cols(); j += 2) {
-                result.data()(i, j) *= bgain;      // B
-                result.data()(i, j + 1) *= 1.0f;   // G
-                result.data()(i + 1, j) *= 1.0f;   // G
-                result.data()(i + 1, j + 1) *= rgain; // R
+                result.data()(i, j) = static_cast<uint32_t>(std::round(result.data()(i, j) * bgain));      // B
+                result.data()(i, j + 1) = result.data()(i, j + 1);   // G
+                result.data()(i + 1, j) = result.data()(i + 1, j);   // G
+                result.data()(i + 1, j + 1) = static_cast<uint32_t>(std::round(result.data()(i + 1, j + 1) * rgain)); // R
             }
         }
     }
     else if (bayer_ == "grbg") {
         for (int i = 0; i < result.rows(); i += 2) {
             for (int j = 0; j < result.cols(); j += 2) {
-                result.data()(i, j) *= 1.0f;       // G
-                result.data()(i, j + 1) *= rgain; // R
-                result.data()(i + 1, j) *= bgain; // B
-                result.data()(i + 1, j + 1) *= 1.0f; // G
+                result.data()(i, j) = result.data()(i, j);       // G
+                result.data()(i, j + 1) = static_cast<uint32_t>(std::round(result.data()(i, j + 1) * rgain)); // R
+                result.data()(i + 1, j) = static_cast<uint32_t>(std::round(result.data()(i + 1, j) * bgain)); // B
+                result.data()(i + 1, j + 1) = result.data()(i + 1, j + 1); // G
             }
         }
     }
     else if (bayer_ == "gbrg") {
         for (int i = 0; i < result.rows(); i += 2) {
             for (int j = 0; j < result.cols(); j += 2) {
-                result.data()(i, j) *= 1.0f;       // G
-                result.data()(i, j + 1) *= bgain; // B
-                result.data()(i + 1, j) *= rgain; // R
-                result.data()(i + 1, j + 1) *= 1.0f; // G
+                result.data()(i, j) = result.data()(i, j);       // G
+                result.data()(i, j + 1) = static_cast<uint32_t>(std::round(result.data()(i, j + 1) * bgain)); // B
+                result.data()(i + 1, j) = static_cast<uint32_t>(std::round(result.data()(i + 1, j) * rgain)); // R
+                result.data()(i + 1, j + 1) = result.data()(i + 1, j + 1); // G
             }
         }
     }
 
     // Clip values to valid range
-    float max_val = static_cast<float>((1 << bit_depth_) - 1);
-    result = result.cwiseMax(0.0f).cwiseMin(max_val);
+    uint32_t max_val = (1U << bit_depth_) - 1;
+    result = result.cwiseMin(max_val);
 
-    // Convert back to OpenCV and update raw_
-    raw_ = hdr_isp::eigen_to_opencv(result);
+    // Update the raw image with the result
+    raw_ = result;
 
     return {rgain, bgain};
 }
 
 std::tuple<double, double> AutoWhiteBalance::apply_gray_world() {
-    GrayWorld gwa(flatten_img_);
-    return gwa.calculate_gains();
-}
-
-std::tuple<double, double> AutoWhiteBalance::apply_gray_world_eigen() {
-    // Simplified Eigen implementation - reuse OpenCV for now
-    GrayWorld gwa(flatten_img_);
+    // Convert Eigen matrix to OpenCV for the existing GrayWorld implementation
+    cv::Mat flatten_cv(3, flatten_img_.cols(), CV_32F);
+    for (int i = 0; i < 3; i++) {
+        for (int j = 0; j < flatten_img_.cols(); j++) {
+            flatten_cv.at<float>(i, j) = flatten_img_(i, j);
+        }
+    }
+    
+    GrayWorld gwa(flatten_cv);
     return gwa.calculate_gains();
 }
 
 std::tuple<double, double> AutoWhiteBalance::apply_norm_gray_world() {
-    NormGrayWorld ngw(flatten_img_);
-    return ngw.calculate_gains();
-}
-
-std::tuple<double, double> AutoWhiteBalance::apply_norm_gray_world_eigen() {
-    // Simplified Eigen implementation - reuse OpenCV for now
-    NormGrayWorld ngw(flatten_img_);
+    // Convert Eigen matrix to OpenCV for the existing NormGrayWorld implementation
+    cv::Mat flatten_cv(3, flatten_img_.cols(), CV_32F);
+    for (int i = 0; i < 3; i++) {
+        for (int j = 0; j < flatten_img_.cols(); j++) {
+            flatten_cv.at<float>(i, j) = flatten_img_(i, j);
+        }
+    }
+    
+    NormGrayWorld ngw(flatten_cv);
     return ngw.calculate_gains();
 }
 
 std::tuple<double, double> AutoWhiteBalance::apply_pca_illuminant_estimation() {
+    // Convert Eigen matrix to OpenCV for the existing PCA implementation
+    cv::Mat flatten_cv(3, flatten_img_.cols(), CV_32F);
+    for (int i = 0; i < 3; i++) {
+        for (int j = 0; j < flatten_img_.cols(); j++) {
+            flatten_cv.at<float>(i, j) = flatten_img_(i, j);
+        }
+    }
+    
     float pixel_percentage = parm_awb_["percentage"].as<float>();
-    PCAIlluminEstimation pca(flatten_img_, pixel_percentage);
-    return pca.calculate_gains();
-}
-
-std::tuple<double, double> AutoWhiteBalance::apply_pca_illuminant_estimation_eigen() {
-    // Simplified Eigen implementation - reuse OpenCV for now
-    float pixel_percentage = parm_awb_["percentage"].as<float>();
-    PCAIlluminEstimation pca(flatten_img_, pixel_percentage);
+    PCAIlluminEstimation pca(flatten_cv, pixel_percentage);
     return pca.calculate_gains();
 }
 

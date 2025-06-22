@@ -1,23 +1,21 @@
 #pragma once
 
-#include <opencv2/opencv.hpp>
 #include <string>
 #include <yaml-cpp/yaml.h>
 #include "../../common/eigen_utils.hpp"
 
 class WhiteBalance {
 public:
-    WhiteBalance(const cv::Mat& img, const YAML::Node& platform, const YAML::Node& sensor_info,
+    WhiteBalance(const hdr_isp::EigenImageU32& img, const YAML::Node& platform, const YAML::Node& sensor_info,
                  const YAML::Node& parm_wbc);
 
-    cv::Mat execute();
+    hdr_isp::EigenImageU32 execute();
 
 private:
-    cv::Mat apply_wb_parameters_opencv();
-    hdr_isp::EigenImageU32 apply_wb_parameters_eigen();
+    hdr_isp::EigenImageU32 apply_wb_parameters();
     void save();
 
-    cv::Mat img_;
+    hdr_isp::EigenImageU32 img_;
     YAML::Node platform_;
     YAML::Node sensor_info_;
     YAML::Node parm_wbc_;
@@ -28,6 +26,5 @@ private:
     bool is_debug_;
     std::string bayer_;
     int bpp_;
-    cv::Mat raw_;
-    bool use_eigen_;
+    hdr_isp::EigenImageU32 raw_;
 }; 
