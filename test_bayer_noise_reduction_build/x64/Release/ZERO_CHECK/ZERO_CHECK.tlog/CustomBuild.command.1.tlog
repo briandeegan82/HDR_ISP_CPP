@@ -1,0 +1,10 @@
+^C:\WORKSPACE\HDR_ISP_CPP\TEST_BAYER_NOISE_REDUCTION_BUILD\CMAKEFILES\5F2FCDAEF06E9E9BD6428264557BA017\GENERATE.STAMP.RULE
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -SC:/workspace/HDR_ISP_CPP -BC:/workspace/HDR_ISP_CPP/test_bayer_noise_reduction_build --check-stamp-list CMakeFiles/generate.stamp.list --vs-solution-file C:/workspace/HDR_ISP_CPP/test_bayer_noise_reduction_build/HDR_ISP_CPP.sln
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd

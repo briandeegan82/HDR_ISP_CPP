@@ -1,0 +1,10 @@
+^C:\WORKSPACE\HDR_ISP_CPP\SRC\MODULES\AUTO_EXPOSURE\CMAKELISTS.TXT
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -SC:/workspace/HDR_ISP_CPP -BC:/workspace/HDR_ISP_CPP/test_bayer_noise_reduction_build --check-stamp-file C:/workspace/HDR_ISP_CPP/test_bayer_noise_reduction_build/src/modules/auto_exposure/CMakeFiles/generate.stamp
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd

@@ -1,0 +1,91 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="17.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <CustomBuild Include="C:\workspace\HDR_ISP_CPP\src\modules\CMakeLists.txt" />
+  </ItemGroup>
+  <ItemGroup>
+    <Object Include="C:\workspace\HDR_ISP_CPP\test_bayer_noise_reduction_build\src\modules\2d_noise_reduction\2d_noise_reduction.dir\$(Configuration)\2d_noise_reduction.obj">
+      <Filter>Object Libraries</Filter>
+    </Object>
+    <Object Include="C:\workspace\HDR_ISP_CPP\test_bayer_noise_reduction_build\src\modules\auto_exposure\auto_exposure.dir\$(Configuration)\auto_exposure.obj">
+      <Filter>Object Libraries</Filter>
+    </Object>
+    <Object Include="C:\workspace\HDR_ISP_CPP\test_bayer_noise_reduction_build\src\modules\auto_white_balance\auto_white_balance.dir\$(Configuration)\auto_white_balance.obj">
+      <Filter>Object Libraries</Filter>
+    </Object>
+    <Object Include="C:\workspace\HDR_ISP_CPP\test_bayer_noise_reduction_build\src\modules\auto_white_balance\auto_white_balance.dir\$(Configuration)\gray_world.obj">
+      <Filter>Object Libraries</Filter>
+    </Object>
+    <Object Include="C:\workspace\HDR_ISP_CPP\test_bayer_noise_reduction_build\src\modules\auto_white_balance\auto_white_balance.dir\$(Configuration)\norm_gray_world.obj">
+      <Filter>Object Libraries</Filter>
+    </Object>
+    <Object Include="C:\workspace\HDR_ISP_CPP\test_bayer_noise_reduction_build\src\modules\auto_white_balance\auto_white_balance.dir\$(Configuration)\pca.obj">
+      <Filter>Object Libraries</Filter>
+    </Object>
+    <Object Include="C:\workspace\HDR_ISP_CPP\test_bayer_noise_reduction_build\src\modules\bayer_noise_reduction\bayer_noise_reduction.dir\$(Configuration)\bayer_noise_reduction.obj">
+      <Filter>Object Libraries</Filter>
+    </Object>
+    <Object Include="C:\workspace\HDR_ISP_CPP\test_bayer_noise_reduction_build\src\modules\black_level_correction\black_level_correction.dir\$(Configuration)\black_level_correction.obj">
+      <Filter>Object Libraries</Filter>
+    </Object>
+    <Object Include="C:\workspace\HDR_ISP_CPP\test_bayer_noise_reduction_build\src\modules\color_correction_matrix\color_correction_matrix.dir\$(Configuration)\color_correction_matrix.obj">
+      <Filter>Object Libraries</Filter>
+    </Object>
+    <Object Include="C:\workspace\HDR_ISP_CPP\test_bayer_noise_reduction_build\src\modules\color_space_conversion\color_space_conversion.dir\$(Configuration)\color_space_conversion.obj">
+      <Filter>Object Libraries</Filter>
+    </Object>
+    <Object Include="C:\workspace\HDR_ISP_CPP\test_bayer_noise_reduction_build\src\modules\crop\crop.dir\$(Configuration)\crop.obj">
+      <Filter>Object Libraries</Filter>
+    </Object>
+    <Object Include="C:\workspace\HDR_ISP_CPP\test_bayer_noise_reduction_build\src\modules\dead_pixel_correction\dead_pixel_correction.dir\$(Configuration)\dead_pixel_correction.obj">
+      <Filter>Object Libraries</Filter>
+    </Object>
+    <Object Include="C:\workspace\HDR_ISP_CPP\test_bayer_noise_reduction_build\src\modules\demosaic\demosaic.dir\$(Configuration)\demosaic.obj">
+      <Filter>Object Libraries</Filter>
+    </Object>
+    <Object Include="C:\workspace\HDR_ISP_CPP\test_bayer_noise_reduction_build\src\modules\digital_gain\digital_gain.dir\$(Configuration)\digital_gain.obj">
+      <Filter>Object Libraries</Filter>
+    </Object>
+    <Object Include="C:\workspace\HDR_ISP_CPP\test_bayer_noise_reduction_build\src\modules\gamma_correction\gamma_correction.dir\$(Configuration)\gamma_correction.obj">
+      <Filter>Object Libraries</Filter>
+    </Object>
+    <Object Include="C:\workspace\HDR_ISP_CPP\test_bayer_noise_reduction_build\src\modules\hdr_durand\hdr_durand.dir\$(Configuration)\hdr_durand.obj">
+      <Filter>Object Libraries</Filter>
+    </Object>
+    <Object Include="C:\workspace\HDR_ISP_CPP\test_bayer_noise_reduction_build\src\modules\ldci\ldci.dir\$(Configuration)\ldci.obj">
+      <Filter>Object Libraries</Filter>
+    </Object>
+    <Object Include="C:\workspace\HDR_ISP_CPP\test_bayer_noise_reduction_build\src\modules\lens_shading_correction\lens_shading_correction.dir\$(Configuration)\lens_shading_correction.obj">
+      <Filter>Object Libraries</Filter>
+    </Object>
+    <Object Include="C:\workspace\HDR_ISP_CPP\test_bayer_noise_reduction_build\src\modules\oecf\oecf.dir\$(Configuration)\oecf.obj">
+      <Filter>Object Libraries</Filter>
+    </Object>
+    <Object Include="C:\workspace\HDR_ISP_CPP\test_bayer_noise_reduction_build\src\modules\pwc_generation\pwc_generation.dir\$(Configuration)\pwc_generation.obj">
+      <Filter>Object Libraries</Filter>
+    </Object>
+    <Object Include="C:\workspace\HDR_ISP_CPP\test_bayer_noise_reduction_build\src\modules\rgb_conversion\rgb_conversion.dir\$(Configuration)\rgb_conversion.obj">
+      <Filter>Object Libraries</Filter>
+    </Object>
+    <Object Include="C:\workspace\HDR_ISP_CPP\test_bayer_noise_reduction_build\src\modules\scale\scale.dir\$(Configuration)\scale.obj">
+      <Filter>Object Libraries</Filter>
+    </Object>
+    <Object Include="C:\workspace\HDR_ISP_CPP\test_bayer_noise_reduction_build\src\modules\scale\scale.dir\$(Configuration)\scale_2d.obj">
+      <Filter>Object Libraries</Filter>
+    </Object>
+    <Object Include="C:\workspace\HDR_ISP_CPP\test_bayer_noise_reduction_build\src\modules\sharpen\sharpen.dir\$(Configuration)\sharpen.obj">
+      <Filter>Object Libraries</Filter>
+    </Object>
+    <Object Include="C:\workspace\HDR_ISP_CPP\test_bayer_noise_reduction_build\src\modules\white_balance\white_balance.dir\$(Configuration)\white_balance.obj">
+      <Filter>Object Libraries</Filter>
+    </Object>
+    <Object Include="C:\workspace\HDR_ISP_CPP\test_bayer_noise_reduction_build\src\modules\yuv_conv_format\yuv_conv_format.dir\$(Configuration)\yuv_conv_format.obj">
+      <Filter>Object Libraries</Filter>
+    </Object>
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="Object Libraries">
+      <UniqueIdentifier>{46CEE6C6-103B-316B-9C14-596AACAB6905}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>

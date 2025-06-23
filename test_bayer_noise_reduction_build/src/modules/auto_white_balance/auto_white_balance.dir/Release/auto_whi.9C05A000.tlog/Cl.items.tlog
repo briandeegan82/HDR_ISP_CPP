@@ -1,0 +1,4 @@
+C:\workspace\HDR_ISP_CPP\src\modules\auto_white_balance\auto_white_balance.cpp;C:\workspace\HDR_ISP_CPP\test_bayer_noise_reduction_build\src\modules\auto_white_balance\auto_white_balance.dir\Release\auto_white_balance.obj
+C:\workspace\HDR_ISP_CPP\src\modules\auto_white_balance\gray_world.cpp;C:\workspace\HDR_ISP_CPP\test_bayer_noise_reduction_build\src\modules\auto_white_balance\auto_white_balance.dir\Release\gray_world.obj
+C:\workspace\HDR_ISP_CPP\src\modules\auto_white_balance\norm_gray_world.cpp;C:\workspace\HDR_ISP_CPP\test_bayer_noise_reduction_build\src\modules\auto_white_balance\auto_white_balance.dir\Release\norm_gray_world.obj
+C:\workspace\HDR_ISP_CPP\src\modules\auto_white_balance\pca.cpp;C:\workspace\HDR_ISP_CPP\test_bayer_noise_reduction_build\src\modules\auto_white_balance\auto_white_balance.dir\Release\pca.obj

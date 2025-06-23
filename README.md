@@ -29,7 +29,7 @@ This project implements a complete ISP pipeline for processing RAW images into h
 - Windows 10 or later
 - Git
 - CMake 3.10 or later
-- Visual Studio 2019 or later with C++17 support
+- Visual Studio 2022 or later with C++17 support
 - vcpkg (will be installed automatically by the setup script)
 
 ## Dependencies
