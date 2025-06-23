@@ -13,12 +13,13 @@ public:
     cv::Mat process(const cv::Mat& input);
 
 private:
-    int clip_limit_;
-    int grid_size_;
+    int clip_limit_;      // CLAHE clip limit parameter
+    int grid_size_;       // CLAHE tile grid size
     
-    // Helper functions
-    cv::Mat compute_histogram(const cv::Mat& tile);
-    cv::Mat apply_clahe_tile(const cv::Mat& tile, const cv::Mat& histogram);
+    // Helper functions for CLAHE processing
+    cv::Mat apply_clahe_to_lab(const cv::Mat& input);
+    cv::Mat normalize_for_clahe(const cv::Mat& input);
+    cv::Mat denormalize_from_clahe(const cv::Mat& input, double original_max);
 };
 
 } // namespace hdr_isp 

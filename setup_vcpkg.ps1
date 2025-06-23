@@ -14,14 +14,15 @@ if (-not (Test-Path ".\vcpkg.exe")) {
     .\bootstrap-vcpkg.bat
 }
 
-# Install required packages
-Write-Host "Installing required packages..."
-.\vcpkg install opencv:x64-windows
+# Install required packages with OpenCL support
+Write-Host "Installing required packages with OpenCL support..."
+.\vcpkg install opencv[opencl]:x64-windows
 .\vcpkg install eigen3:x64-windows
 .\vcpkg install libraw:x64-windows
 .\vcpkg install yaml-cpp:x64-windows
 .\vcpkg install fftw3:x64-windows
 .\vcpkg install gsl:x64-windows
+.\vcpkg install halide:x64-windows
 
 # Integrate vcpkg with CMake
 Write-Host "Integrating vcpkg with CMake..."
@@ -30,4 +31,4 @@ Write-Host "Integrating vcpkg with CMake..."
 # Return to original directory
 Set-Location $PSScriptRoot
 
-Write-Host "vcpkg setup complete!" 
+Write-Host "vcpkg setup complete with OpenCL and Halide support!" 

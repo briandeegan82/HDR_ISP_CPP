@@ -1,0 +1,53 @@
+cmake_minimum_required(VERSION 3.16)
+project(BlackLevelCorrectionHalideTest)
+
+# Set C++ standard
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+# Find required packages
+find_package(OpenCV REQUIRED)
+find_package(Eigen3 REQUIRED)
+find_package(yaml-cpp REQUIRED)
+find_package(Halide REQUIRED)
+
+# Add executable
+add_executable(test_black_level_correction_halide test_black_level_correction_halide.cpp)
+
+# Link libraries
+target_link_libraries(test_black_level_correction_halide
+    ${OpenCV_LIBS}
+    Eigen3::Eigen
+    yaml-cpp
+    ${HALIDE_LIBRARIES}
+)
+
+# Include directories
+target_include_directories(test_black_level_correction_halide PRIVATE
+    ${OpenCV_INCLUDE_DIRS}
+    ${EIGEN3_INCLUDE_DIR}
+    ${YAML_CPP_INCLUDE_DIR}
+    ${HALIDE_INCLUDE_DIRS}
+    .
+)
+
+# Set compiler flags for optimization
+set_target_properties(test_black_level_correction_halide PROPERTIES
+    CXX_FLAGS "-O3 -march=native -mtune=native"
+)
+
+# Add compile definitions
+target_compile_definitions(test_black_level_correction_halide PRIVATE
+    USE_HYBRID_BACKEND
+)
+
+# Set output directory
+set_target_properties(test_black_level_correction_halide PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
+)
+
+# Print configuration info
+message(STATUS "Building Black Level Correction Halide Test")
+message(STATUS "OpenCV version: ${OpenCV_VERSION}")
+message(STATUS "Eigen3 version: ${EIGEN3_VERSION}")
+message(STATUS "Halide version: ${HALIDE_VERSION}") 

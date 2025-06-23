@@ -3,7 +3,7 @@ cmake_minimum_required(VERSION 3.10)
 # Add vcpkg toolchain file
 set(CMAKE_TOOLCHAIN_FILE "C:/vcpkg/scripts/buildsystems/vcpkg.cmake" CACHE STRING "Vcpkg toolchain file")
 
-project(HDR_ISP_CPP)
+project(HDR_ISP_Hybrid_Test)
 
 # Set C++ standard
 set(CMAKE_CXX_STANDARD 17)
@@ -17,11 +17,6 @@ option(USE_HYBRID_BACKEND "Enable hybrid backend with Halide support" OFF)
 
 # Find required packages
 find_package(OpenCV REQUIRED)
-find_package(Eigen3 REQUIRED)
-find_package(LibRaw REQUIRED)
-find_package(yaml-cpp REQUIRED)
-find_package(FFTW3 REQUIRED)
-find_package(GSL REQUIRED)
 
 # Optional Halide package
 if(USE_HYBRID_BACKEND)
@@ -37,13 +32,8 @@ endif()
 
 # Include directories
 include_directories(
-    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}
     ${OpenCV_INCLUDE_DIRS}
-    ${EIGEN3_INCLUDE_DIR}
-    ${LibRaw_INCLUDE_DIRS}
-    ${YAML_CPP_INCLUDE_DIR}
-    ${FFTW3_INCLUDE_DIRS}
-    ${GSL_INCLUDE_DIRS}
 )
 
 # Add Halide include directories if available
@@ -51,27 +41,20 @@ if(USE_HYBRID_BACKEND AND Halide_FOUND)
     include_directories(${HALIDE_INCLUDE_DIRS})
 endif()
 
-# Add source directory
+# Add source directory for common components
 add_subdirectory(src)
 
-# Create executable
-add_executable(hdr_isp_pipeline src/main.cpp)
+# Create test executable
+add_executable(test_hybrid_backend test_hybrid_backend.cpp)
 
-# Link dependencies to the executable
-target_link_libraries(hdr_isp_pipeline
+# Link dependencies to the test executable
+target_link_libraries(test_hybrid_backend
     PRIVATE
         common
-        infinite_isp
-        isp_modules
         ${OpenCV_LIBS}
-        Eigen3::Eigen
-        ${LibRaw_LIBRARIES}
-        yaml-cpp::yaml-cpp
-        FFTW3::fftw3
-        ${GSL_LIBRARIES}
 )
 
 # Add Halide libraries if available
 if(USE_HYBRID_BACKEND AND Halide_FOUND)
-    target_link_libraries(hdr_isp_pipeline PRIVATE ${HALIDE_LIBRARIES})
+    target_link_libraries(test_hybrid_backend PRIVATE ${HALIDE_LIBRARIES})
 endif() 

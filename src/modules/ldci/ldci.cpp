@@ -3,25 +3,10 @@
 #include <iostream>
 #include <filesystem>
 #include <cmath>
+#include <opencv2/opencv.hpp>
+#include <algorithm>
 
 namespace fs = std::filesystem;
-
-LDCI::LDCI(const cv::Mat& img, const YAML::Node& platform,
-           const YAML::Node& sensor_info, const YAML::Node& params)
-    : img_(img.clone())
-    , platform_(platform)
-    , sensor_info_(sensor_info)
-    , params_(params)
-    , is_enable_(params["is_enable"].as<bool>())
-    , is_save_(params["is_save"].as<bool>())
-    , is_debug_(params["is_debug"].as<bool>())
-    , strength_(params["clip_limit"].as<float>())
-    , window_size_(params["wind"].as<int>())
-    , output_bit_depth_(sensor_info["output_bit_depth"].as<int>())
-    , use_eigen_(true) // Use Eigen by default
-    , has_eigen_input_(false)
-{
-}
 
 LDCI::LDCI(const hdr_isp::EigenImage3C& img, const YAML::Node& platform,
            const YAML::Node& sensor_info, const YAML::Node& params)
@@ -35,288 +20,255 @@ LDCI::LDCI(const hdr_isp::EigenImage3C& img, const YAML::Node& platform,
     , strength_(params["clip_limit"].as<float>())
     , window_size_(params["wind"].as<int>())
     , output_bit_depth_(sensor_info["output_bit_depth"].as<int>())
-    , use_eigen_(true) // Use Eigen by default
-    , has_eigen_input_(true)
+    , fp_config_(params)  // Initialize with params
+    , use_fixed_point_(false)
+    , use_fixed_input_(false)
 {
+    std::cout << "LDCI - Constructor started (floating-point)" << std::endl;
+    std::cout << "LDCI - Input image size: " << img.rows() << "x" << img.cols() << std::endl;
+    std::cout << "LDCI - Enable: " << (is_enable_ ? "true" : "false") << std::endl;
+    std::cout << "LDCI - Strength (clip limit): " << strength_ << std::endl;
+    std::cout << "LDCI - Window size (tile size): " << window_size_ << std::endl;
+    std::cout << "LDCI - Output bit depth: " << output_bit_depth_ << std::endl;
+    
+    // Print input image statistics
+    float min_val = std::min({img.r().min(), img.g().min(), img.b().min()});
+    float max_val = std::max({img.r().max(), img.g().max(), img.b().max()});
+    float mean_val = (img.r().mean() + img.g().mean() + img.b().mean()) / 3.0f;
+    std::cout << "LDCI - Input image - Mean: " << mean_val << ", Min: " << min_val << ", Max: " << max_val << std::endl;
+    
+    std::cout << "LDCI - Constructor completed" << std::endl;
 }
 
-cv::Mat LDCI::calculate_local_contrast_opencv(const cv::Mat& img) {
-    cv::Mat local_mean;
-    cv::boxFilter(img, local_mean, CV_32F, cv::Size(window_size_, window_size_));
+LDCI::LDCI(const hdr_isp::EigenImage3CFixed& img, const YAML::Node& platform,
+           const YAML::Node& sensor_info, const YAML::Node& params,
+           const hdr_isp::FixedPointConfig& fp_config)
+    : eigen_img_fixed_(img)
+    , platform_(platform)
+    , sensor_info_(sensor_info)
+    , params_(params)
+    , is_enable_(params["is_enable"].as<bool>())
+    , is_save_(params["is_save"].as<bool>())
+    , is_debug_(params["is_debug"].as<bool>())
+    , strength_(params["clip_limit"].as<float>())
+    , window_size_(params["wind"].as<int>())
+    , output_bit_depth_(sensor_info["output_bit_depth"].as<int>())
+    , fp_config_(fp_config)
+    , use_fixed_point_(fp_config.isEnabled())
+    , use_fixed_input_(true)
+{
+    std::cout << "LDCI - Constructor started (fixed-point)" << std::endl;
+    std::cout << "LDCI - Input image size: " << img.rows() << "x" << img.cols() << std::endl;
+    std::cout << "LDCI - Enable: " << (is_enable_ ? "true" : "false") << std::endl;
+    std::cout << "LDCI - Strength (clip limit): " << strength_ << std::endl;
+    std::cout << "LDCI - Window size (tile size): " << window_size_ << std::endl;
+    std::cout << "LDCI - Output bit depth: " << output_bit_depth_ << std::endl;
+    std::cout << "LDCI - Fixed-point enabled: " << (use_fixed_point_ ? "true" : "false") << std::endl;
+    std::cout << "LDCI - Fractional bits: " << fp_config_.getFractionalBits() << std::endl;
     
-    cv::Mat local_std;
-    cv::Mat img_squared;
-    cv::multiply(img, img, img_squared);
-    cv::boxFilter(img_squared, local_std, CV_32F, cv::Size(window_size_, window_size_));
+    // Print input image statistics
+    int16_t min_val = std::min({img.r().min(), img.g().min(), img.b().min()});
+    int16_t max_val = std::max({img.r().max(), img.g().max(), img.b().max()});
+    float mean_val = (img.r().mean() + img.g().mean() + img.b().mean()) / 3.0f;
+    std::cout << "LDCI - Input image - Mean: " << mean_val << ", Min: " << min_val << ", Max: " << max_val << std::endl;
     
-    cv::Mat local_mean_squared;
-    cv::multiply(local_mean, local_mean, local_mean_squared);
-    local_std = local_std - local_mean_squared;
-    cv::sqrt(local_std, local_std);
-    
-    return local_std;
+    std::cout << "LDCI - Constructor completed" << std::endl;
 }
 
-hdr_isp::EigenImage LDCI::calculate_local_contrast_eigen(const hdr_isp::EigenImage& img) {
-    int rows = img.rows();
-    int cols = img.cols();
-    int pad = window_size_ / 2;
+hdr_isp::EigenImage3C LDCI::apply_ldci_opencv() {
+    std::cout << "LDCI - apply_ldci_opencv() started" << std::endl;
     
-    hdr_isp::EigenImage local_mean = hdr_isp::EigenImage::Zero(rows, cols);
-    hdr_isp::EigenImage local_std = hdr_isp::EigenImage::Zero(rows, cols);
+    auto start = std::chrono::high_resolution_clock::now();
     
-    // Calculate local mean and variance using sliding window
-    for (int i = pad; i < rows - pad; i++) {
-        for (int j = pad; j < cols - pad; j++) {
-            float sum = 0.0f;
-            float sum_sq = 0.0f;
-            int count = 0;
-            
-            for (int ki = -pad; ki <= pad; ki++) {
-                for (int kj = -pad; kj <= pad; kj++) {
-                    float val = img(i + ki, j + kj);
-                    sum += val;
-                    sum_sq += val * val;
-                    count++;
-                }
-            }
-            
-            local_mean(i, j) = sum / count;
-            float variance = (sum_sq / count) - (local_mean(i, j) * local_mean(i, j));
-            local_std(i, j) = std::sqrt(std::max(0.0f, variance));
-        }
-    }
+    // Convert Eigen to OpenCV
+    cv::Mat opencv_img = eigen_img_.toOpenCV(CV_32FC3);
     
-    return local_std;
-}
-
-cv::Mat LDCI::enhance_contrast_opencv(const cv::Mat& img, const cv::Mat& local_contrast) {
-    cv::Mat enhanced;
-    cv::Mat local_mean;
-    cv::boxFilter(img, local_mean, CV_32F, cv::Size(window_size_, window_size_));
+    // Find the maximum value in the input image for proper scaling
+    double min_val, max_val;
+    cv::minMaxLoc(opencv_img, &min_val, &max_val);
     
-    // Calculate enhancement factor based on local contrast
-    cv::Mat enhancement_factor;
-    cv::divide(local_contrast, local_mean + 1e-6, enhancement_factor);
-    enhancement_factor = 1.0 + strength_ * enhancement_factor;
-    
-    // Apply enhancement
-    cv::multiply(img - local_mean, enhancement_factor, enhanced);
-    enhanced += local_mean;
-    
-    return enhanced;
-}
-
-hdr_isp::EigenImage LDCI::enhance_contrast_eigen(const hdr_isp::EigenImage& img, const hdr_isp::EigenImage& local_contrast) {
-    int rows = img.rows();
-    int cols = img.cols();
-    int pad = window_size_ / 2;
-    
-    hdr_isp::EigenImage local_mean = hdr_isp::EigenImage::Zero(rows, cols);
-    hdr_isp::EigenImage enhanced = hdr_isp::EigenImage::Zero(rows, cols);
-    
-    // Calculate local mean
-    for (int i = pad; i < rows - pad; i++) {
-        for (int j = pad; j < cols - pad; j++) {
-            float sum = 0.0f;
-            int count = 0;
-            
-            for (int ki = -pad; ki <= pad; ki++) {
-                for (int kj = -pad; kj <= pad; kj++) {
-                    sum += img(i + ki, j + kj);
-                    count++;
-                }
-            }
-            
-            local_mean(i, j) = sum / count;
-        }
-    }
-    
-    // Calculate enhancement factor and apply enhancement
-    for (int i = 0; i < rows; i++) {
-        for (int j = 0; j < cols; j++) {
-            float enhancement_factor = 1.0f + strength_ * (local_contrast(i, j) / (local_mean(i, j) + 1e-6f));
-            enhanced(i, j) = local_mean(i, j) + enhancement_factor * (img(i, j) - local_mean(i, j));
-        }
-    }
-    
-    return enhanced;
-}
-
-cv::Mat LDCI::apply_ldci_opencv() {
-    // Convert to float for processing
-    cv::Mat float_img;
-    img_.convertTo(float_img, CV_32F);
-    
-    // Calculate local contrast
-    cv::Mat local_contrast = calculate_local_contrast_opencv(float_img);
-    
-    // Enhance contrast
-    cv::Mat enhanced = enhance_contrast_opencv(float_img, local_contrast);
-    
-    // Convert back to original bit depth
-    cv::Mat result;
-    if (output_bit_depth_ == 8) {
-        enhanced.convertTo(result, CV_8U, 255.0);
-    }
-    else if (output_bit_depth_ == 16) {
-        enhanced.convertTo(result, CV_16U, 65535.0);
-    }
-    else if (output_bit_depth_ == 32) {
-        enhanced.convertTo(result, CV_32F);
-    }
-    else {
-        throw std::runtime_error("Unsupported output bit depth. Use 8, 16, or 32.");
-    }
-    
-    return result;
-}
-
-hdr_isp::EigenImage3C LDCI::apply_ldci_eigen() {
-    // Use the appropriate input (Eigen or converted from OpenCV)
-    hdr_isp::EigenImage3C eigen_img;
-    if (has_eigen_input_) {
-        eigen_img = eigen_img_;
+    // Normalize to 0-255 range for CLAHE processing
+    cv::Mat normalized;
+    if (max_val > 0) {
+        cv::normalize(opencv_img, normalized, 0, 255, cv::NORM_MINMAX);
     } else {
-        eigen_img = hdr_isp::EigenImage3C::fromOpenCV(img_);
+        normalized = opencv_img.clone();
+    }
+    normalized.convertTo(normalized, CV_8UC3);
+    
+    // Convert to LAB color space for better contrast enhancement
+    cv::Mat lab;
+    cv::cvtColor(normalized, lab, cv::COLOR_BGR2Lab);
+    
+    // Split channels
+    std::vector<cv::Mat> lab_planes(3);
+    cv::split(lab, lab_planes);
+    
+    // Apply CLAHE to L channel (lightness) only
+    cv::Ptr<cv::CLAHE> clahe = cv::createCLAHE(strength_, cv::Size(window_size_, window_size_));
+    clahe->apply(lab_planes[0], lab_planes[0]);
+    
+    // Merge channels back
+    cv::merge(lab_planes, lab);
+    
+    // Convert back to BGR
+    cv::Mat result;
+    cv::cvtColor(lab, result, cv::COLOR_Lab2BGR);
+    
+    // Convert back to float
+    cv::Mat result_float;
+    result.convertTo(result_float, CV_32F);
+    
+    // Scale back to original range
+    if (max_val > 0) {
+        result_float = result_float * (max_val / 255.0f);
     }
     
-    // Process each channel separately
-    hdr_isp::EigenImage3C result;
-    result.r() = hdr_isp::EigenImage::Zero(eigen_img.rows(), eigen_img.cols());
-    result.g() = hdr_isp::EigenImage::Zero(eigen_img.rows(), eigen_img.cols());
-    result.b() = hdr_isp::EigenImage::Zero(eigen_img.rows(), eigen_img.cols());
+    // Convert back to Eigen
+    hdr_isp::EigenImage3C eigen_result = hdr_isp::EigenImage3C::fromOpenCV(result_float);
     
-    // Process R channel
-    hdr_isp::EigenImage local_contrast_r = calculate_local_contrast_eigen(eigen_img.r());
-    result.r() = enhance_contrast_eigen(eigen_img.r(), local_contrast_r);
+    auto end = std::chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
     
-    // Process G channel
-    hdr_isp::EigenImage local_contrast_g = calculate_local_contrast_eigen(eigen_img.g());
-    result.g() = enhance_contrast_eigen(eigen_img.g(), local_contrast_g);
+    std::cout << "LDCI - apply_ldci_opencv() completed in " << duration.count() / 1000.0 << " ms" << std::endl;
+    return eigen_result;
+}
+
+hdr_isp::EigenImage3CFixed LDCI::apply_ldci_fixed() {
+    std::cout << "LDCI - apply_ldci_fixed() started" << std::endl;
     
-    // Process B channel
-    hdr_isp::EigenImage local_contrast_b = calculate_local_contrast_eigen(eigen_img.b());
-    result.b() = enhance_contrast_eigen(eigen_img.b(), local_contrast_b);
+    auto start = std::chrono::high_resolution_clock::now();
     
-    // Apply bit depth conversion
-    if (output_bit_depth_ == 8) {
-        result.r() = result.r().cwiseMax(0.0f).cwiseMin(255.0f);
-        result.g() = result.g().cwiseMax(0.0f).cwiseMin(255.0f);
-        result.b() = result.b().cwiseMax(0.0f).cwiseMin(255.0f);
-    } else if (output_bit_depth_ == 16) {
-        result.r() = result.r().cwiseMax(0.0f).cwiseMin(65535.0f);
-        result.g() = result.g().cwiseMax(0.0f).cwiseMin(65535.0f);
-        result.b() = result.b().cwiseMax(0.0f).cwiseMin(65535.0f);
-    }
-    // For 32-bit, no clipping needed
+    // Convert fixed-point to floating-point for OpenCV processing
+    hdr_isp::EigenImage3C float_img = eigen_img_fixed_.toEigenImage3C(fp_config_.getFractionalBits());
     
+    // Store original image for processing
+    eigen_img_ = float_img;
+    
+    // Apply CLAHE using floating-point version
+    hdr_isp::EigenImage3C enhanced_float = apply_ldci_opencv();
+    
+    // Convert back to fixed-point
+    hdr_isp::EigenImage3CFixed result = hdr_isp::EigenImage3CFixed::fromEigenImage3C(enhanced_float, fp_config_.getFractionalBits());
+    
+    auto end = std::chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+    
+    std::cout << "LDCI - apply_ldci_fixed() completed in " << duration.count() / 1000.0 << " ms" << std::endl;
     return result;
 }
 
-cv::Mat LDCI::apply_ldci_multi_channel() {
-    // Split the image into channels
-    std::vector<cv::Mat> channels;
-    cv::split(img_, channels);
-    
-    // Process each channel separately
-    std::vector<cv::Mat> processed_channels;
-    for (const auto& channel : channels) {
-        // Create a temporary LDCI instance for single channel processing
-        cv::Mat single_channel = channel.clone();
-        
-        // Convert to float for processing
-        cv::Mat float_img;
-        single_channel.convertTo(float_img, CV_32F);
-        
-        // Calculate local contrast
-        cv::Mat local_contrast = calculate_local_contrast_opencv(float_img);
-        
-        // Enhance contrast
-        cv::Mat enhanced = enhance_contrast_opencv(float_img, local_contrast);
-        
-        // Convert back to original bit depth
-        cv::Mat result;
-        if (output_bit_depth_ == 8) {
-            enhanced.convertTo(result, CV_8U, 255.0);
-        }
-        else if (output_bit_depth_ == 16) {
-            enhanced.convertTo(result, CV_16U, 65535.0);
-        }
-        else if (output_bit_depth_ == 32) {
-            enhanced.convertTo(result, CV_32F);
-        }
-        else {
-            throw std::runtime_error("Unsupported output bit depth. Use 8, 16, or 32.");
-        }
-        
-        processed_channels.push_back(result);
+hdr_isp::EigenImage3C LDCI::execute() {
+    if (!is_enable_) {
+        std::cout << "LDCI - Module disabled, returning input image" << std::endl;
+        return eigen_img_;
     }
     
-    // Merge the processed channels back
-    cv::Mat result;
-    cv::merge(processed_channels, result);
+    std::cout << "LDCI - execute() started" << std::endl;
     
+    hdr_isp::EigenImage3C result = apply_ldci_opencv();
+    
+    if (is_save_) {
+        save();
+    }
+    
+    std::cout << "LDCI - execute() completed" << std::endl;
+    return result;
+}
+
+hdr_isp::EigenImage3CFixed LDCI::execute_fixed() {
+    if (!is_enable_) {
+        std::cout << "LDCI - Module disabled, returning input image" << std::endl;
+        return eigen_img_fixed_;
+    }
+    
+    std::cout << "LDCI - execute_fixed() started" << std::endl;
+    
+    hdr_isp::EigenImage3CFixed result = apply_ldci_fixed();
+    
+    if (is_save_) {
+        save_fixed();
+    }
+    
+    std::cout << "LDCI - execute_fixed() completed" << std::endl;
     return result;
 }
 
 void LDCI::save() {
     if (is_save_) {
-        std::string output_path = "out_frames/intermediate/Out_ldci_" + 
-                                 std::to_string(img_.cols) + "x" + std::to_string(img_.rows) + ".png";
-        cv::imwrite(output_path, img_);
-    }
-}
-
-cv::Mat LDCI::execute() {
-    if (is_enable_) {
-        auto start = std::chrono::high_resolution_clock::now();
+        std::cout << "LDCI - save() started" << std::endl;
         
-        // Check if the image is multi-channel
-        if (img_.channels() > 1) {
-            // Use multi-channel processing
-            img_ = apply_ldci_multi_channel();
+        fs::path output_dir = "out_frames";
+        fs::create_directories(output_dir);
+        
+        // Try to get filename from platform config
+        std::string in_file;
+        if (platform_["filename"]) {
+            in_file = platform_["filename"].as<std::string>();
         } else {
-            // Use single-channel processing
-            if (use_eigen_) {
-                hdr_isp::EigenImage3C eigen_result = apply_ldci_eigen();
-                img_ = eigen_result.toOpenCV(CV_32FC3);
-            } else {
-                img_ = apply_ldci_opencv();
-            }
+            in_file = "unknown";
         }
         
-        auto end = std::chrono::high_resolution_clock::now();
-        auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+        std::string bayer_pattern = sensor_info_["bayer_pattern"].as<std::string>();
         
-        if (is_debug_) {
-            std::cout << "  Execution time: " << duration.count() / 1000.0 << "s" << std::endl;
+        // Create output filename
+        fs::path in_path(in_file);
+        std::string base_name = in_path.stem().string();
+        std::string output_filename = base_name + "_ldci.png";
+        fs::path output_path = output_dir / output_filename;
+        
+        // Convert to OpenCV format for saving
+        cv::Mat opencv_img = eigen_img_.toOpenCV(CV_8UC3);
+        
+        // Save image
+        bool success = cv::imwrite(output_path.string(), opencv_img);
+        if (success) {
+            std::cout << "LDCI - Saved output image: " << output_path.string() << std::endl;
+        } else {
+            std::cout << "LDCI - Failed to save output image: " << output_path.string() << std::endl;
         }
+        
+        std::cout << "LDCI - save() completed" << std::endl;
     }
-
-    return img_;
 }
 
-hdr_isp::EigenImage3C LDCI::execute_eigen() {
-    if (is_enable_) {
-        auto start = std::chrono::high_resolution_clock::now();
+void LDCI::save_fixed() {
+    if (is_save_) {
+        std::cout << "LDCI - save_fixed() started" << std::endl;
         
-        hdr_isp::EigenImage3C result = apply_ldci_eigen();
+        fs::path output_dir = "out_frames";
+        fs::create_directories(output_dir);
         
-        auto end = std::chrono::high_resolution_clock::now();
-        auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
-        
-        if (is_debug_) {
-            std::cout << "  Eigen execution time: " << duration.count() / 1000.0 << "s" << std::endl;
+        // Try to get filename from platform config
+        std::string in_file;
+        if (platform_["filename"]) {
+            in_file = platform_["filename"].as<std::string>();
+        } else {
+            in_file = "unknown";
         }
         
-        return result;
-    }
-
-    // Return original image if not enabled
-    if (has_eigen_input_) {
-        return eigen_img_;
-    } else {
-        return hdr_isp::EigenImage3C::fromOpenCV(img_);
+        std::string bayer_pattern = sensor_info_["bayer_pattern"].as<std::string>();
+        
+        // Create output filename
+        fs::path in_path(in_file);
+        std::string base_name = in_path.stem().string();
+        std::string output_filename = base_name + "_ldci_fixed.png";
+        fs::path output_path = output_dir / output_filename;
+        
+        // Convert fixed-point to floating-point for saving
+        hdr_isp::EigenImage3C float_img = eigen_img_fixed_.toEigenImage3C(fp_config_.getFractionalBits());
+        
+        // Convert to OpenCV format for saving
+        cv::Mat opencv_img = float_img.toOpenCV(CV_8UC3);
+        
+        // Save image
+        bool success = cv::imwrite(output_path.string(), opencv_img);
+        if (success) {
+            std::cout << "LDCI - Saved fixed-point output image: " << output_path.string() << std::endl;
+        } else {
+            std::cout << "LDCI - Failed to save fixed-point output image: " << output_path.string() << std::endl;
+        }
+        
+        std::cout << "LDCI - save_fixed() completed" << std::endl;
     }
 } 

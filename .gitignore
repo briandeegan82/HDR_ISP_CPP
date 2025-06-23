@@ -2,6 +2,38 @@
 build/
 out/
 cmake-build-*/
+test_build/
+
+# test build files
+build_test.ps1
+build_test.sh
+build_test.bat
+build_test.cmd
+build_test.exe
+build_test.dll
+build_test.so
+build_black_level_correction.ps1
+build_black_level_correction.sh
+build_black_level_correction.bat
+build_black_level_correction.cmd
+build_black_level_correction.exe
+build_black_level_correction.dll
+build_black_level_correction.so
+setup_halide.ps1
+setup_halide.sh
+setup_halide.bat
+setup_halide.cmd
+setup_halide.exe
+setup_halide.dll
+setup_halide.so
+setup_hybrid.ps1
+setup_hybrid.sh
+setup_hybrid.bat
+setup_hybrid.cmd
+setup_hybrid.exe
+setup_hybrid.dll
+setup_hybrid.so
+setup_hybrid_fixed.ps1
 
 # IDE files
 .vs/
