@@ -1,0 +1,49 @@
+cmake_minimum_required(VERSION 3.16)
+project(lens_shading_correction_halide_test)
+
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+# Find required packages
+find_package(OpenCV REQUIRED)
+find_package(yaml-cpp REQUIRED)
+find_package(Eigen3 REQUIRED)
+find_package(Halide REQUIRED)
+
+# Set hybrid backend option
+option(USE_HYBRID_BACKEND "Enable hybrid backend optimization" ON)
+
+if(USE_HYBRID_BACKEND)
+    add_compile_definitions(USE_HYBRID_BACKEND)
+endif()
+
+# Include directories
+include_directories(
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${OpenCV_INCLUDE_DIRS}
+    ${EIGEN3_INCLUDE_DIR}
+    ${HALIDE_INCLUDE_DIR}
+)
+
+# Create the test executable
+add_executable(lens_shading_correction_halide_test
+    test_lens_shading_correction_halide.cpp
+    src/common/eigen_utils.cpp
+    src/modules/lens_shading_correction/lens_shading_correction.cpp
+    src/modules/lens_shading_correction/lens_shading_correction_halide.cpp
+    src/modules/module_ab_test.cpp
+)
+
+# Link libraries
+target_link_libraries(lens_shading_correction_halide_test
+    ${OpenCV_LIBS}
+    yaml-cpp::yaml-cpp
+    ${EIGEN3_LIBRARIES}
+    ${HALIDE_LIBRARIES}
+)
+
+# Set output directory
+set_target_properties(lens_shading_correction_halide_test
+    PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
+) 

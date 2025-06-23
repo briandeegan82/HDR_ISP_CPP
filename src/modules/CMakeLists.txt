@@ -48,9 +48,24 @@ add_library(isp_modules STATIC
     $<TARGET_OBJECTS:yuv_conv_format>
 )
 
-# Link OpenCV and other dependencies to the modules library
-target_link_libraries(isp_modules
-    PRIVATE
-        ${OpenCV_LIBS}
-        yaml-cpp::yaml-cpp
-) 
+# Add Halide modules if hybrid backend is enabled
+if(USE_HYBRID_BACKEND)
+    target_link_libraries(isp_modules
+        PRIVATE
+            ${OpenCV_LIBS}
+            yaml-cpp::yaml-cpp
+            lens_shading_correction_halide
+            black_level_correction_halide
+            digital_gain_halide
+            bayer_noise_reduction_halide
+            rgb_conversion_hybrid
+            color_space_conversion_hybrid
+    )
+else()
+    # Link OpenCV and other dependencies to the modules library
+    target_link_libraries(isp_modules
+        PRIVATE
+            ${OpenCV_LIBS}
+            yaml-cpp::yaml-cpp
+    )
+endif() 
