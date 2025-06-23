@@ -202,6 +202,17 @@ public:
     // Clone method
     EigenImage3C clone() const { return EigenImage3C(r_, g_, b_); }
     
+    // Statistics methods (to resolve compiler errors in LDCI)
+    float min() const { 
+        return std::min({r_.min(), g_.min(), b_.min()}); 
+    }
+    float max() const { 
+        return std::max({r_.max(), g_.max(), b_.max()}); 
+    }
+    float mean() const { 
+        return (r_.mean() + g_.mean() + b_.mean()) / 3.0f; 
+    }
+    
 private:
     EigenImage r_, g_, b_;
 };

@@ -32,9 +32,9 @@ LDCI::LDCI(const hdr_isp::EigenImage3C& img, const YAML::Node& platform,
     std::cout << "LDCI - Output bit depth: " << output_bit_depth_ << std::endl;
     
     // Print input image statistics
-    float min_val = std::min({img.r().min(), img.g().min(), img.b().min()});
-    float max_val = std::max({img.r().max(), img.g().max(), img.b().max()});
-    float mean_val = (img.r().mean() + img.g().mean() + img.b().mean()) / 3.0f;
+    float min_val = img.min();
+    float max_val = img.max();
+    float mean_val = img.mean();
     std::cout << "LDCI - Input image - Mean: " << mean_val << ", Min: " << min_val << ", Max: " << max_val << std::endl;
     
     std::cout << "LDCI - Constructor completed" << std::endl;
@@ -67,9 +67,9 @@ LDCI::LDCI(const hdr_isp::EigenImage3CFixed& img, const YAML::Node& platform,
     std::cout << "LDCI - Fractional bits: " << fp_config_.getFractionalBits() << std::endl;
     
     // Print input image statistics
-    int16_t min_val = std::min({img.r().min(), img.g().min(), img.b().min()});
-    int16_t max_val = std::max({img.r().max(), img.g().max(), img.b().max()});
-    float mean_val = (img.r().mean() + img.g().mean() + img.b().mean()) / 3.0f;
+    int16_t min_val = img.min();
+    int16_t max_val = img.max();
+    float mean_val = img.mean();
     std::cout << "LDCI - Input image - Mean: " << mean_val << ", Min: " << min_val << ", Max: " << max_val << std::endl;
     
     std::cout << "LDCI - Constructor completed" << std::endl;

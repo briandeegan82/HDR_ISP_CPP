@@ -14,6 +14,9 @@
 #include "modules/ldci/ldci.hpp"
 #include "modules/lens_shading_correction/lens_shading_correction.hpp"
 #include "modules/2d_noise_reduction/2d_noise_reduction.hpp"
+#ifdef USE_HYBRID_BACKEND
+#include "modules/2d_noise_reduction/2d_noise_reduction_hybrid.hpp"
+#endif
 #include "modules/oecf/oecf.hpp"
 #include "modules/pwc_generation/pwc_generation.hpp"
 #include "modules/rgb_conversion/rgb_conversion.hpp"
@@ -1043,10 +1046,13 @@ hdr_isp::EigenImageU32 InfiniteISP::run_pipeline(bool visualize_output, bool sav
     // 19. 2d noise reduction
     std::cout << "2d noise reduction" << std::endl;
     if (parm_2dn_["is_enable"].as<bool>()) {
-        // Use Eigen-based NoiseReduction2D module directly
+#ifdef USE_HYBRID_BACKEND
+        NoiseReduction2DHybrid nr2d(eigen_img_3c, config_["platform"], config_["sensor_info"], parm_2dn_);
+        eigen_img_3c = nr2d.execute_eigen();
+#else
         NoiseReduction2D nr2d(eigen_img_3c, config_["platform"], config_["sensor_info"], parm_2dn_);
         eigen_img_3c = nr2d.execute_eigen();
-        
+#endif
         if (save_intermediate) {
             fs::path output_path = intermediate_dir / "2d_noise_reduction.png";
             // Debug: Print image statistics before saving

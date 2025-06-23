@@ -15,6 +15,9 @@ public:
 
     hdr_isp::EigenImage3C execute();
     hdr_isp::EigenImage3CFixed execute_fixed();
+    
+    // Alias for pipeline compatibility
+    hdr_isp::EigenImage3C execute_eigen() { return execute(); }
 
 private:
     // OpenCV CLAHE-based implementation
