@@ -11,11 +11,6 @@ ColorCorrectionMatrixHybrid::ColorCorrectionMatrixHybrid(const hdr_isp::EigenIma
     , is_debug_(parm_ccm["is_debug"].as<bool>())
     , is_save_(parm_ccm["is_save"].as<bool>())
 {
-    if (is_debug_) {
-        std::cout << "CCM Hybrid - Constructor started" << std::endl;
-        std::cout << "CCM Hybrid - Input image size: " << img.rows() << "x" << img.cols() << std::endl;
-        std::cout << "CCM Hybrid - Enable: " << (enable_ ? "true" : "false") << std::endl;
-    }
 }
 
 ColorCorrectionMatrixHybrid::ColorCorrectionMatrixHybrid(const hdr_isp::EigenImage3CFixed& img, const YAML::Node& sensor_info, 
@@ -24,21 +19,11 @@ ColorCorrectionMatrixHybrid::ColorCorrectionMatrixHybrid(const hdr_isp::EigenIma
     , is_debug_(parm_ccm["is_debug"].as<bool>())
     , is_save_(parm_ccm["is_save"].as<bool>())
 {
-    if (is_debug_) {
-        std::cout << "CCM Hybrid - Constructor started" << std::endl;
-        std::cout << "CCM Hybrid - Input image size: " << img.rows() << "x" << img.cols() << std::endl;
-        std::cout << "CCM Hybrid - Enable: " << (enable_ ? "true" : "false") << std::endl;
-    }
 }
 
 Halide::Buffer<float> ColorCorrectionMatrixHybrid::apply_ccm_halide(const Halide::Buffer<float>& input) {
     int width = input.width();
     int height = input.height();
-    
-    if (is_debug_) {
-        std::cout << "CCM Hybrid - apply_ccm_halide() started" << std::endl;
-        std::cout << "CCM Hybrid - Input size: " << width << "x" << height << "x3" << std::endl;
-    }
     
     Halide::Var x, y, c;  // x, y coordinates, c for RGB channels
     
@@ -62,24 +47,12 @@ Halide::Buffer<float> ColorCorrectionMatrixHybrid::apply_ccm_halide(const Halide
     // Realize the result
     Halide::Buffer<float> output = ccm_result.realize({width, height, 3});
     
-    if (is_debug_) {
-        float min_val = output.min();
-        float max_val = output.max();
-        std::cout << "CCM Hybrid - Output - Min: " << min_val << ", Max: " << max_val << std::endl;
-    }
-    
     return output;
 }
 
 Halide::Buffer<int16_t> ColorCorrectionMatrixHybrid::apply_ccm_fixed_halide(const Halide::Buffer<int16_t>& input) {
     int width = input.width();
     int height = input.height();
-    
-    if (is_debug_) {
-        std::cout << "CCM Hybrid - apply_ccm_fixed_halide() started" << std::endl;
-        std::cout << "CCM Hybrid - Input size: " << width << "x" << height << "x3" << std::endl;
-        std::cout << "CCM Hybrid - Fractional bits: " << fractional_bits_ << std::endl;
-    }
     
     Halide::Var x, y, c;
     
@@ -104,12 +77,6 @@ Halide::Buffer<int16_t> ColorCorrectionMatrixHybrid::apply_ccm_fixed_halide(cons
     // Realize the result
     Halide::Buffer<int16_t> output = ccm_fixed_result.realize({width, height, 3});
     
-    if (is_debug_) {
-        int16_t min_val = output.min();
-        int16_t max_val = output.max();
-        std::cout << "CCM Hybrid Fixed - Output - Min: " << min_val << ", Max: " << max_val << std::endl;
-    }
-    
     return output;
 }
 
@@ -117,11 +84,6 @@ Halide::Buffer<float> ColorCorrectionMatrixHybrid::apply_ccm_vectorized_halide(c
     // This is an alternative implementation with more aggressive vectorization
     int width = input.width();
     int height = input.height();
-    
-    if (is_debug_) {
-        std::cout << "CCM Hybrid - apply_ccm_vectorized_halide() started" << std::endl;
-        std::cout << "CCM Hybrid - Input size: " << width << "x" << height << "x3" << std::endl;
-    }
     
     Halide::Var x, y, c;
     
@@ -149,28 +111,27 @@ Halide::Buffer<float> ColorCorrectionMatrixHybrid::apply_ccm_vectorized_halide(c
     // Realize the result
     Halide::Buffer<float> output = ccm_vectorized.realize({width, height, 3});
     
-    if (is_debug_) {
-        float min_val = output.min();
-        float max_val = output.max();
-        std::cout << "CCM Hybrid Vectorized - Output - Min: " << min_val << ", Max: " << max_val << std::endl;
-    }
-    
     return output;
 }
 
+// Utility functions for data conversion
 Halide::Buffer<float> ColorCorrectionMatrixHybrid::eigen_to_halide_float(const hdr_isp::EigenImage3C& eigen_img) {
     int rows = eigen_img.rows();
     int cols = eigen_img.cols();
     
-    // Create Halide buffer with interleaved RGB layout
     Halide::Buffer<float> buffer(cols, rows, 3);
     
-    // Copy data in interleaved format for better vectorization
-    for (int y = 0; y < rows; ++y) {
-        for (int x = 0; x < cols; ++x) {
-            buffer(x, y, 0) = eigen_img.r().data()(y, x);  // R channel
-            buffer(x, y, 1) = eigen_img.g().data()(y, x);  // G channel
-            buffer(x, y, 2) = eigen_img.b().data()(y, x);  // B channel
+    for (int c = 0; c < 3; ++c) {
+        for (int i = 0; i < rows; ++i) {
+            for (int j = 0; j < cols; ++j) {
+                float value;
+                switch (c) {
+                    case 0: value = eigen_img.r()(i, j); break;
+                    case 1: value = eigen_img.g()(i, j); break;
+                    case 2: value = eigen_img.b()(i, j); break;
+                }
+                buffer(j, i, c) = value;
+            }
         }
     }
     
@@ -178,15 +139,13 @@ Halide::Buffer<float> ColorCorrectionMatrixHybrid::eigen_to_halide_float(const h
 }
 
 hdr_isp::EigenImage3C ColorCorrectionMatrixHybrid::halide_to_eigen_float(const Halide::Buffer<float>& buffer, int rows, int cols) {
-    // Create Eigen image
     hdr_isp::EigenImage3C result(rows, cols);
     
-    // Copy data back from interleaved format
-    for (int y = 0; y < rows; ++y) {
-        for (int x = 0; x < cols; ++x) {
-            result.r().data()(y, x) = buffer(x, y, 0);  // R channel
-            result.g().data()(y, x) = buffer(x, y, 1);  // G channel
-            result.b().data()(y, x) = buffer(x, y, 2);  // B channel
+    for (int i = 0; i < rows; ++i) {
+        for (int j = 0; j < cols; ++j) {
+            result.r()(i, j) = buffer(j, i, 0);
+            result.g()(i, j) = buffer(j, i, 1);
+            result.b()(i, j) = buffer(j, i, 2);
         }
     }
     
@@ -197,15 +156,19 @@ Halide::Buffer<int16_t> ColorCorrectionMatrixHybrid::eigen_to_halide_fixed(const
     int rows = eigen_img.rows();
     int cols = eigen_img.cols();
     
-    // Create Halide buffer with interleaved RGB layout
     Halide::Buffer<int16_t> buffer(cols, rows, 3);
     
-    // Copy data in interleaved format for better vectorization
-    for (int y = 0; y < rows; ++y) {
-        for (int x = 0; x < cols; ++x) {
-            buffer(x, y, 0) = eigen_img.r()(y, x);  // R channel
-            buffer(x, y, 1) = eigen_img.g()(y, x);  // G channel
-            buffer(x, y, 2) = eigen_img.b()(y, x);  // B channel
+    for (int c = 0; c < 3; ++c) {
+        for (int i = 0; i < rows; ++i) {
+            for (int j = 0; j < cols; ++j) {
+                int16_t value;
+                switch (c) {
+                    case 0: value = eigen_img.r()(i, j); break;
+                    case 1: value = eigen_img.g()(i, j); break;
+                    case 2: value = eigen_img.b()(i, j); break;
+                }
+                buffer(j, i, c) = value;
+            }
         }
     }
     
@@ -213,15 +176,13 @@ Halide::Buffer<int16_t> ColorCorrectionMatrixHybrid::eigen_to_halide_fixed(const
 }
 
 hdr_isp::EigenImage3CFixed ColorCorrectionMatrixHybrid::halide_to_eigen_fixed(const Halide::Buffer<int16_t>& buffer, int rows, int cols) {
-    // Create Eigen fixed-point image
     hdr_isp::EigenImage3CFixed result(rows, cols);
     
-    // Copy data back from interleaved format
-    for (int y = 0; y < rows; ++y) {
-        for (int x = 0; x < cols; ++x) {
-            result.r()(y, x) = buffer(x, y, 0);  // R channel
-            result.g()(y, x) = buffer(x, y, 1);  // G channel
-            result.b()(y, x) = buffer(x, y, 2);  // B channel
+    for (int i = 0; i < rows; ++i) {
+        for (int j = 0; j < cols; ++j) {
+            result.r()(i, j) = buffer(j, i, 0);
+            result.g()(i, j) = buffer(j, i, 1);
+            result.b()(i, j) = buffer(j, i, 2);
         }
     }
     
@@ -229,11 +190,17 @@ hdr_isp::EigenImage3CFixed ColorCorrectionMatrixHybrid::halide_to_eigen_fixed(co
 }
 
 void ColorCorrectionMatrixHybrid::save() {
-    if (is_save_) {
-        std::string output_path = "out_frames/intermediate/Out_ccm_hybrid_" + 
-                                 std::to_string(raw_.cols) + "x" + std::to_string(raw_.rows) + ".png";
-        cv::Mat temp_img = raw_.toOpenCV(CV_32FC3);
-        cv::imwrite(output_path, temp_img);
+    if (!is_save_) return;
+    
+    // Save intermediate results if needed
+    fs::path output_dir = fs::path(PROJECT_ROOT_DIR) / "out_frames" / "intermediate";
+    fs::create_directories(output_dir);
+    
+    // Save floating-point result
+    if (!use_fixed_input_) {
+        fs::path output_path = output_dir / "color_correction_matrix_hybrid.png";
+        cv::Mat opencv_img = raw_.toOpenCV(CV_32FC3);
+        cv::imwrite(output_path.string(), opencv_img);
     }
 }
 
@@ -244,18 +211,10 @@ hdr_isp::EigenImage3C ColorCorrectionMatrixHybrid::execute() {
 
     auto start = std::chrono::high_resolution_clock::now();
     
-    if (is_debug_) {
-        std::cout << "CCM Hybrid - execute() started" << std::endl;
-    }
-    
     hdr_isp::EigenImage3C result;
     
     if (fp_config_.isEnabled()) {
         // Use fixed-point mode
-        if (is_debug_) {
-            std::cout << "CCM Hybrid - Using fixed-point mode" << std::endl;
-        }
-        
         // Convert Eigen to Halide fixed-point
         Halide::Buffer<int16_t> halide_input = eigen_to_halide_fixed(raw_fixed_);
         
@@ -269,10 +228,6 @@ hdr_isp::EigenImage3C ColorCorrectionMatrixHybrid::execute() {
         result = hdr_isp::EigenImage3C::fromFixedPoint(result_fixed, fp_config_);
     } else {
         // Use floating-point mode
-        if (is_debug_) {
-            std::cout << "CCM Hybrid - Using floating-point mode" << std::endl;
-        }
-        
         // Convert Eigen to Halide float
         Halide::Buffer<float> halide_input = eigen_to_halide_float(raw_);
         
@@ -304,10 +259,6 @@ hdr_isp::EigenImage3CFixed ColorCorrectionMatrixHybrid::execute_fixed() {
     }
 
     auto start = std::chrono::high_resolution_clock::now();
-    
-    if (is_debug_) {
-        std::cout << "CCM Hybrid - execute_fixed() started" << std::endl;
-    }
     
     // Convert Eigen fixed-point to Halide
     Halide::Buffer<int16_t> halide_input = eigen_to_halide_fixed(raw_fixed_);

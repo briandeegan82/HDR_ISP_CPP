@@ -40,9 +40,6 @@ BlackLevelCorrectionHalide::BlackLevelCorrectionHalide(const Halide::Buffer<uint
         throw std::runtime_error("Invalid parameters for BlackLevelCorrectionHalide");
     }
     
-    // Print debug information
-    printDebugInfo();
-    
     // Initialize Halide pipeline
     initializePipeline();
 }
@@ -281,18 +278,6 @@ Halide::Func BlackLevelCorrectionHalide::applyBLC_GBRG(const Halide::Buffer<uint
                                                                      input(x, y)))));
     
     return blc;
-}
-
-void BlackLevelCorrectionHalide::printDebugInfo() const {
-    std::cout << "BLC Halide - Parameters:" << std::endl;
-    std::cout << "  R offset: " << r_offset_ << ", saturation: " << r_sat_ << std::endl;
-    std::cout << "  GR offset: " << gr_offset_ << ", saturation: " << gr_sat_ << std::endl;
-    std::cout << "  GB offset: " << gb_offset_ << ", saturation: " << gb_sat_ << std::endl;
-    std::cout << "  B offset: " << b_offset_ << ", saturation: " << b_sat_ << std::endl;
-    std::cout << "  Bayer pattern: " << bayer_pattern_ << std::endl;
-    std::cout << "  Bit depth: " << bit_depth_ << ", Max value: " << max_val_ << std::endl;
-    std::cout << "  Image size: " << input_.width() << "x" << input_.height() << std::endl;
-    std::cout << "  Enabled: " << (enable_ ? "Yes" : "No") << std::endl;
 }
 
 bool BlackLevelCorrectionHalide::validateParameters() const {

@@ -427,8 +427,6 @@ hdr_isp::EigenImageU32 InfiniteISP::run_pipeline(bool visualize_output, bool sav
     if (parm_blc_["is_enable"].as<bool>()) {
 #ifdef USE_HYBRID_BACKEND
         if (hdr_isp::ISPBackendWrapper::isOptimizedBackendAvailable()) {
-            std::cout << "Using Halide-optimized Black Level Correction" << std::endl;
-            
             // Convert Eigen to Halide for processing
             Halide::Buffer<uint32_t> halide_img = hdr_isp::eigenToHalide(eigen_img);
             
@@ -445,47 +443,15 @@ hdr_isp::EigenImageU32 InfiniteISP::run_pipeline(bool visualize_output, bool sav
             
             // Convert back to Eigen
             eigen_img = hdr_isp::halideToEigen(halide_img);
-            
-            // Debug: Print image statistics after Halide black level correction
-            uint32_t min_val = eigen_img.min();
-            uint32_t max_val = eigen_img.max();
-            float mean_val = eigen_img.mean();
-            std::cout << "=== AFTER HALIDE BLACK LEVEL CORRECTION ===" << std::endl;
-            std::cout << "Type: EigenImageU32 (uint32_t)" << std::endl;
-            std::cout << "Min: " << min_val << ", Mean: " << mean_val << ", Max: " << max_val << std::endl;
-            std::cout << "Size: " << eigen_img.cols() << "x" << eigen_img.rows() << ", Channels: 1" << std::endl;
-            std::cout << "Performance: " << blc_halide.getPerformanceStats() << std::endl;
-            std::cout << "===========================================" << std::endl;
         } else {
-            std::cout << "Halide backend not available, using Eigen implementation" << std::endl;
             // Use Eigen-based black level correction module directly
             BlackLevelCorrection blc(eigen_img, config_["sensor_info"], parm_blc_);
             eigen_img = blc.execute();
-            
-            // Debug: Print image statistics after black level correction using Eigen
-            uint32_t min_val = eigen_img.min();
-            uint32_t max_val = eigen_img.max();
-            float mean_val = eigen_img.mean();
-            std::cout << "=== AFTER BLACK LEVEL CORRECTION ===" << std::endl;
-            std::cout << "Type: EigenImageU32 (uint32_t)" << std::endl;
-            std::cout << "Min: " << min_val << ", Mean: " << mean_val << ", Max: " << max_val << std::endl;
-            std::cout << "Size: " << eigen_img.cols() << "x" << eigen_img.rows() << ", Channels: 1" << std::endl;
-            std::cout << "===================================" << std::endl;
         }
 #else
         // Use Eigen-based black level correction module directly
         BlackLevelCorrection blc(eigen_img, config_["sensor_info"], parm_blc_);
         eigen_img = blc.execute();
-        
-        // Debug: Print image statistics after black level correction using Eigen
-        uint32_t min_val = eigen_img.min();
-        uint32_t max_val = eigen_img.max();
-        float mean_val = eigen_img.mean();
-        std::cout << "=== AFTER BLACK LEVEL CORRECTION ===" << std::endl;
-        std::cout << "Type: EigenImageU32 (uint32_t)" << std::endl;
-        std::cout << "Min: " << min_val << ", Mean: " << mean_val << ", Max: " << max_val << std::endl;
-        std::cout << "Size: " << eigen_img.cols() << "x" << eigen_img.rows() << ", Channels: 1" << std::endl;
-        std::cout << "===================================" << std::endl;
 #endif
         
         if (save_intermediate) {
@@ -1241,19 +1207,10 @@ hdr_isp::EigenImageU32 InfiniteISP::run_pipeline(bool visualize_output, bool sav
     // 13. Color correction matrix
     std::cout << "Color correction matrix" << std::endl;
     if (parm_ccm_["is_enable"].as<bool>()) {
-        std::cout << "CCM - Fixed-point enabled: " << (fp_config_.isEnabled() ? "true" : "false") << std::endl;
-        std::cout << "CCM - eigen_img_3c_fixed.rows(): " << eigen_img_3c_fixed.rows() << std::endl;
-        std::cout << "CCM - eigen_img_3c_fixed.cols(): " << eigen_img_3c_fixed.cols() << std::endl;
-        std::cout << "CCM - eigen_img_3c.rows(): " << eigen_img_3c.rows() << std::endl;
-        std::cout << "CCM - eigen_img_3c.cols(): " << eigen_img_3c.cols() << std::endl;
-        
 #ifdef USE_HYBRID_BACKEND
         if (hdr_isp::ISPBackendWrapper::isOptimizedBackendAvailable()) {
-            std::cout << "CCM - Using hybrid Color Correction Matrix" << std::endl;
-            
             // Check if we have fixed-point data from demosaic
             if (fp_config_.isEnabled() && eigen_img_3c_fixed.rows() > 0) {
-                std::cout << "CCM - Using fixed-point hybrid Color Correction Matrix" << std::endl;
                 // Use fixed-point hybrid Color Correction Matrix
                 ColorCorrectionMatrixHybrid ccm_hybrid(eigen_img_3c_fixed, config_["sensor_info"], parm_ccm_, fp_config_);
                 hdr_isp::EigenImage3CFixed eigen_result_fixed = ccm_hybrid.execute_fixed();
@@ -1261,19 +1218,15 @@ hdr_isp::EigenImageU32 InfiniteISP::run_pipeline(bool visualize_output, bool sav
                 // Update both fixed-point and floating-point versions
                 eigen_img_3c_fixed = eigen_result_fixed;
                 eigen_img_3c = eigen_result_fixed.toEigenImage3C(fp_config_.getFractionalBits());
-                std::cout << "CCM - Fixed-point hybrid execution completed" << std::endl;
             } else {
-                std::cout << "CCM - Using floating-point hybrid Color Correction Matrix" << std::endl;
                 // Use floating-point hybrid Color Correction Matrix
                 ColorCorrectionMatrixHybrid ccm_hybrid(eigen_img_3c, config_["sensor_info"], parm_ccm_, fp_config_);
                 eigen_img_3c = ccm_hybrid.execute();
-                std::cout << "CCM - Floating-point hybrid execution completed" << std::endl;
             }
         } else {
             // Fallback to original implementation
             // Check if we have fixed-point data from demosaic
             if (fp_config_.isEnabled() && eigen_img_3c_fixed.rows() > 0) {
-                std::cout << "CCM - Using fixed-point Color Correction Matrix (fallback)" << std::endl;
                 // Use fixed-point Color Correction Matrix
                 ColorCorrectionMatrix ccm(eigen_img_3c_fixed, config_["sensor_info"], parm_ccm_, fp_config_);
                 hdr_isp::EigenImage3CFixed eigen_result_fixed = ccm.execute_fixed();
@@ -1281,19 +1234,15 @@ hdr_isp::EigenImageU32 InfiniteISP::run_pipeline(bool visualize_output, bool sav
                 // Update both fixed-point and floating-point versions
                 eigen_img_3c_fixed = eigen_result_fixed;
                 eigen_img_3c = eigen_result_fixed.toEigenImage3C(fp_config_.getFractionalBits());
-                std::cout << "CCM - Fixed-point execution completed" << std::endl;
             } else {
-                std::cout << "CCM - Using floating-point Color Correction Matrix (fallback)" << std::endl;
                 // Use floating-point Color Correction Matrix
                 ColorCorrectionMatrix ccm(eigen_img_3c, config_["sensor_info"], parm_ccm_, fp_config_);
                 eigen_img_3c = ccm.execute();
-                std::cout << "CCM - Floating-point execution completed" << std::endl;
             }
         }
 #else
         // Check if we have fixed-point data from demosaic
         if (fp_config_.isEnabled() && eigen_img_3c_fixed.rows() > 0) {
-            std::cout << "CCM - Using fixed-point Color Correction Matrix" << std::endl;
             // Use fixed-point Color Correction Matrix
             ColorCorrectionMatrix ccm(eigen_img_3c_fixed, config_["sensor_info"], parm_ccm_, fp_config_);
             hdr_isp::EigenImage3CFixed eigen_result_fixed = ccm.execute_fixed();
@@ -1301,13 +1250,10 @@ hdr_isp::EigenImageU32 InfiniteISP::run_pipeline(bool visualize_output, bool sav
             // Update both fixed-point and floating-point versions
             eigen_img_3c_fixed = eigen_result_fixed;
             eigen_img_3c = eigen_result_fixed.toEigenImage3C(fp_config_.getFractionalBits());
-            std::cout << "CCM - Fixed-point execution completed" << std::endl;
         } else {
-            std::cout << "CCM - Using floating-point Color Correction Matrix" << std::endl;
             // Use floating-point Color Correction Matrix
             ColorCorrectionMatrix ccm(eigen_img_3c, config_["sensor_info"], parm_ccm_, fp_config_);
             eigen_img_3c = ccm.execute();
-            std::cout << "CCM - Floating-point execution completed" << std::endl;
         }
 #endif
         
@@ -1329,20 +1275,14 @@ hdr_isp::EigenImageU32 InfiniteISP::run_pipeline(bool visualize_output, bool sav
             }
             cv::imwrite(output_path.string(), save_img);
         }
-    } else {
-        std::cout << "CCM - Color correction matrix is disabled" << std::endl;
     }
 
     // =====================================================================
     // 14. Gamma
     std::cout << "Gamma" << std::endl;
     if (parm_gmc_["is_enable"].as<bool>()) {
-        std::cout << "Applying gamma correction..." << std::endl;
-        
 #ifdef USE_HYBRID_BACKEND
         if (hdr_isp::ISPBackendWrapper::isOptimizedBackendAvailable()) {
-            std::cout << "Gamma - Using hybrid Gamma Correction" << std::endl;
-            
             // Use hybrid gamma correction module
             GammaCorrectionHybrid gamma_hybrid(eigen_img_3c, config_["platform"], config_["sensor_info"], parm_gmc_);
             eigen_img_3c = gamma_hybrid.execute();
@@ -1366,7 +1306,6 @@ hdr_isp::EigenImageU32 InfiniteISP::run_pipeline(bool visualize_output, bool sav
                 cv::imwrite(output_path.string(), save_img);
             }
         } else {
-            std::cout << "Gamma - Using original implementation (fallback)" << std::endl;
             // Use original gamma correction
             GammaCorrection gamma(eigen_img_3c, config_["platform"], config_["sensor_info"], parm_gmc_);
             eigen_img_3c = gamma.execute();

@@ -48,37 +48,8 @@ hdr_isp::EigenImageU32 BlackLevelCorrection::apply_blc_parameters_eigen(const hd
     int gb_sat = static_cast<int>(parm_blc_["gb_sat"].as<double>());
     int b_sat = static_cast<int>(parm_blc_["b_sat"].as<double>());
     
-    // Debug output
-    std::cout << "BLC Eigen - Parameters:" << std::endl;
-    std::cout << "  R offset: " << r_offset << ", saturation: " << r_sat << std::endl;
-    std::cout << "  GR offset: " << gr_offset << ", saturation: " << gr_sat << std::endl;
-    std::cout << "  GB offset: " << gb_offset << ", saturation: " << gb_sat << std::endl;
-    std::cout << "  B offset: " << b_offset << ", saturation: " << b_sat << std::endl;
-    std::cout << "  Bayer pattern: " << bayer_pattern_ << std::endl;
-    std::cout << "  Note: Linearization removed from BLC - only offset subtraction performed" << std::endl;
-    
-    // Print input image statistics
-    uint32_t min_val = img.min();
-    uint32_t max_val_input = img.max();
-    float mean_val = img.mean();
-    std::cout << "BLC Eigen - Input image - Mean: " << mean_val << ", Min: " << min_val << ", Max: " << max_val_input << std::endl;
-    
-    // Debug: Check a few sample values to verify conversion
-    std::cout << "BLC Eigen - Sample values (top-left 3x3):" << std::endl;
-    for (int i = 0; i < std::min(3, img.rows()); ++i) {
-        for (int j = 0; j < std::min(3, img.cols()); ++j) {
-            std::cout << "  [" << i << "," << j << "] = " << img.data()(i, j) << std::endl;
-        }
-    }
-    
     hdr_isp::EigenImageU32 result = img.clone();
     apply_blc_bayer_eigen(result, r_offset, gr_offset, gb_offset, b_offset, r_sat, gr_sat, gb_sat, b_sat);
-    
-    // Print output image statistics
-    uint32_t min_val_out = result.min();
-    uint32_t max_val_out = result.max();
-    float mean_val_out = result.mean();
-    std::cout << "BLC Eigen - Output image - Mean: " << mean_val_out << ", Min: " << min_val_out << ", Max: " << max_val_out << std::endl;
     
     return result;
 }
@@ -103,6 +74,7 @@ void BlackLevelCorrection::apply_blc_bayer_eigen(hdr_isp::EigenImageU32& img, in
     
     // Black level correction should ONLY subtract the offset
     // Linearization should be a separate step in the pipeline
+    
     if (bayer_pattern_ == "rggb") {
         // R channel
         for (int i = 0; i < rows; i += 2) {
