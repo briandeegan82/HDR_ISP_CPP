@@ -16,6 +16,17 @@
 #include "modules/2d_noise_reduction/2d_noise_reduction.hpp"
 #ifdef USE_HYBRID_BACKEND
 #include "modules/2d_noise_reduction/2d_noise_reduction_hybrid.hpp"
+// Halide module includes for early pipeline optimization
+#include "modules/black_level_correction/black_level_correction_halide.hpp"
+#include "modules/digital_gain/digital_gain_halide.hpp"
+#include "modules/lens_shading_correction/lens_shading_correction_halide.hpp"
+#include "modules/bayer_noise_reduction/bayer_noise_reduction_halide.hpp"
+// Hybrid module includes for later pipeline optimization
+#include "modules/rgb_conversion/rgb_conversion_hybrid.hpp"
+#include "modules/scale/scale_hybrid.hpp"
+#include "modules/color_correction_matrix/color_correction_matrix_hybrid.hpp"
+#include "common/halide_utils.hpp"
+#include "isp_backend_wrapper.hpp"
 #endif
 #include "modules/oecf/oecf.hpp"
 #include "modules/pwc_generation/pwc_generation.hpp"
@@ -409,6 +420,54 @@ hdr_isp::EigenImageU32 InfiniteISP::run_pipeline(bool visualize_output, bool sav
     // 3. Black level correction
     std::cout << "Black level correction" << std::endl;
     if (parm_blc_["is_enable"].as<bool>()) {
+#ifdef USE_HYBRID_BACKEND
+        if (hdr_isp::ISPBackendWrapper::isOptimizedBackendAvailable()) {
+            std::cout << "Using Halide-optimized Black Level Correction" << std::endl;
+            
+            // Convert Eigen to Halide for processing
+            Halide::Buffer<uint32_t> halide_img = hdr_isp::eigenToHalide(eigen_img);
+            
+            // Start performance monitoring
+            hdr_isp::ISPBackendWrapper::startTimer();
+            
+            // Execute Halide-optimized black level correction
+            hdr_isp::BlackLevelCorrectionHalide blc_halide(halide_img, config_["sensor_info"], parm_blc_);
+            halide_img = blc_halide.execute();
+            
+            // End performance monitoring
+            double blc_time_ms = hdr_isp::ISPBackendWrapper::endTimer();
+            std::cout << "Halide BLC execution time: " << blc_time_ms << "ms" << std::endl;
+            
+            // Convert back to Eigen
+            eigen_img = hdr_isp::halideToEigen(halide_img);
+            
+            // Debug: Print image statistics after Halide black level correction
+            uint32_t min_val = eigen_img.min();
+            uint32_t max_val = eigen_img.max();
+            float mean_val = eigen_img.mean();
+            std::cout << "=== AFTER HALIDE BLACK LEVEL CORRECTION ===" << std::endl;
+            std::cout << "Type: EigenImageU32 (uint32_t)" << std::endl;
+            std::cout << "Min: " << min_val << ", Mean: " << mean_val << ", Max: " << max_val << std::endl;
+            std::cout << "Size: " << eigen_img.cols() << "x" << eigen_img.rows() << ", Channels: 1" << std::endl;
+            std::cout << "Performance: " << blc_halide.getPerformanceStats() << std::endl;
+            std::cout << "===========================================" << std::endl;
+        } else {
+            std::cout << "Halide backend not available, using Eigen implementation" << std::endl;
+            // Use Eigen-based black level correction module directly
+            BlackLevelCorrection blc(eigen_img, config_["sensor_info"], parm_blc_);
+            eigen_img = blc.execute();
+            
+            // Debug: Print image statistics after black level correction using Eigen
+            uint32_t min_val = eigen_img.min();
+            uint32_t max_val = eigen_img.max();
+            float mean_val = eigen_img.mean();
+            std::cout << "=== AFTER BLACK LEVEL CORRECTION ===" << std::endl;
+            std::cout << "Type: EigenImageU32 (uint32_t)" << std::endl;
+            std::cout << "Min: " << min_val << ", Mean: " << mean_val << ", Max: " << max_val << std::endl;
+            std::cout << "Size: " << eigen_img.cols() << "x" << eigen_img.rows() << ", Channels: 1" << std::endl;
+            std::cout << "===================================" << std::endl;
+        }
+#else
         // Use Eigen-based black level correction module directly
         BlackLevelCorrection blc(eigen_img, config_["sensor_info"], parm_blc_);
         eigen_img = blc.execute();
@@ -422,6 +481,7 @@ hdr_isp::EigenImageU32 InfiniteISP::run_pipeline(bool visualize_output, bool sav
         std::cout << "Min: " << min_val << ", Mean: " << mean_val << ", Max: " << max_val << std::endl;
         std::cout << "Size: " << eigen_img.cols() << "x" << eigen_img.rows() << ", Channels: 1" << std::endl;
         std::cout << "===================================" << std::endl;
+#endif
         
         if (save_intermediate) {
             fs::path output_path = intermediate_dir / "black_level_correction.png";
@@ -530,6 +590,53 @@ hdr_isp::EigenImageU32 InfiniteISP::run_pipeline(bool visualize_output, bool sav
     std::cout << "Digital Gain" << std::endl;
       
     try {
+#ifdef USE_HYBRID_BACKEND
+        if (hdr_isp::ISPBackendWrapper::isOptimizedBackendAvailable()) {
+            std::cout << "Using Halide-optimized Digital Gain" << std::endl;
+            
+            // Start performance monitoring
+            hdr_isp::ISPBackendWrapper::startTimer();
+            
+            // Execute Halide-optimized digital gain
+            DigitalGainHalide dga_halide(eigen_img, config_["platform"], config_["sensor_info"], parm_dga_);
+            auto [result_eigen, gain] = dga_halide.execute();
+            eigen_img = result_eigen;
+            dga_current_gain_ = gain;
+            
+            // End performance monitoring
+            double dga_time_ms = hdr_isp::ISPBackendWrapper::endTimer();
+            std::cout << "Halide Digital Gain execution time: " << dga_time_ms << "ms" << std::endl;
+            
+            // Debug: Print image statistics after Halide digital gain
+            uint32_t min_val = eigen_img.min();
+            uint32_t max_val = eigen_img.max();
+            float mean_val = eigen_img.mean();
+            std::cout << "=== AFTER HALIDE DIGITAL GAIN ===" << std::endl;
+            std::cout << "Type: EigenImageU32 (uint32_t)" << std::endl;
+            std::cout << "Min: " << min_val << ", Mean: " << mean_val << ", Max: " << max_val << std::endl;
+            std::cout << "Size: " << eigen_img.cols() << "x" << eigen_img.rows() << ", Channels: 1" << std::endl;
+            std::cout << "Applied gain: " << gain << std::endl;
+            std::cout << "=================================" << std::endl;
+        } else {
+            std::cout << "Halide backend not available, using Eigen implementation" << std::endl;
+            // Digital gain already uses Eigen
+            DigitalGain dga(eigen_img, config_["platform"], config_["sensor_info"], parm_dga_);
+            auto [result_eigen, gain] = dga.execute();
+            eigen_img = result_eigen;
+            dga_current_gain_ = gain;
+            
+            // Debug: Print image statistics after digital gain using Eigen
+            uint32_t min_val = eigen_img.min();
+            uint32_t max_val = eigen_img.max();
+            float mean_val = eigen_img.mean();
+            std::cout << "=== AFTER DIGITAL GAIN ===" << std::endl;
+            std::cout << "Type: EigenImageU32 (uint32_t)" << std::endl;
+            std::cout << "Min: " << min_val << ", Mean: " << mean_val << ", Max: " << max_val << std::endl;
+            std::cout << "Size: " << eigen_img.cols() << "x" << eigen_img.rows() << ", Channels: 1" << std::endl;
+            std::cout << "Applied gain: " << gain << std::endl;
+            std::cout << "=========================" << std::endl;
+        }
+#else
         // Digital gain already uses Eigen
         DigitalGain dga(eigen_img, config_["platform"], config_["sensor_info"], parm_dga_);
         auto [result_eigen, gain] = dga.execute();
@@ -546,6 +653,7 @@ hdr_isp::EigenImageU32 InfiniteISP::run_pipeline(bool visualize_output, bool sav
         std::cout << "Size: " << eigen_img.cols() << "x" << eigen_img.rows() << ", Channels: 1" << std::endl;
         std::cout << "Applied gain: " << gain << std::endl;
         std::cout << "=========================" << std::endl;
+#endif
         
         if (save_intermediate) {
             fs::path output_path = intermediate_dir / "digital_gain.png";
@@ -578,6 +686,47 @@ hdr_isp::EigenImageU32 InfiniteISP::run_pipeline(bool visualize_output, bool sav
     // 7. Lens shading correction
     std::cout << "Lens shading correction" << std::endl;
     if (parm_lsc_["is_enable"].as<bool>()) {
+#ifdef USE_HYBRID_BACKEND
+        if (hdr_isp::ISPBackendWrapper::isOptimizedBackendAvailable()) {
+            std::cout << "Using Halide-optimized Lens Shading Correction" << std::endl;
+            
+            // Start performance monitoring
+            hdr_isp::ISPBackendWrapper::startTimer();
+            
+            // Execute Halide-optimized lens shading correction
+            LensShadingCorrectionHalide lsc_halide(eigen_img, config_["platform"], config_["sensor_info"], parm_lsc_);
+            eigen_img = lsc_halide.execute();
+            
+            // End performance monitoring
+            double lsc_time_ms = hdr_isp::ISPBackendWrapper::endTimer();
+            std::cout << "Halide LSC execution time: " << lsc_time_ms << "ms" << std::endl;
+            
+            // Debug: Print image statistics after Halide lens shading correction
+            uint32_t min_val = eigen_img.min();
+            uint32_t max_val = eigen_img.max();
+            float mean_val = eigen_img.mean();
+            std::cout << "=== AFTER HALIDE LENS SHADING CORRECTION ===" << std::endl;
+            std::cout << "Type: EigenImageU32 (uint32_t)" << std::endl;
+            std::cout << "Min: " << min_val << ", Mean: " << mean_val << ", Max: " << max_val << std::endl;
+            std::cout << "Size: " << eigen_img.cols() << "x" << eigen_img.rows() << ", Channels: 1" << std::endl;
+            std::cout << "============================================" << std::endl;
+        } else {
+            std::cout << "Halide backend not available, using Eigen implementation" << std::endl;
+            // Use Eigen-based lens shading correction module directly
+            LensShadingCorrection lsc(eigen_img, config_["platform"], config_["sensor_info"], parm_lsc_);
+            eigen_img = lsc.execute();
+            
+            // Debug: Print image statistics after lens shading correction using Eigen
+            uint32_t min_val = eigen_img.min();
+            uint32_t max_val = eigen_img.max();
+            float mean_val = eigen_img.mean();
+            std::cout << "=== AFTER LENS SHADING CORRECTION ===" << std::endl;
+            std::cout << "Type: EigenImageU32 (uint32_t)" << std::endl;
+            std::cout << "Min: " << min_val << ", Mean: " << mean_val << ", Max: " << max_val << std::endl;
+            std::cout << "Size: " << eigen_img.cols() << "x" << eigen_img.rows() << ", Channels: 1" << std::endl;
+            std::cout << "====================================" << std::endl;
+        }
+#else
         // Use Eigen-based lens shading correction module directly
         LensShadingCorrection lsc(eigen_img, config_["platform"], config_["sensor_info"], parm_lsc_);
         eigen_img = lsc.execute();
@@ -591,6 +740,7 @@ hdr_isp::EigenImageU32 InfiniteISP::run_pipeline(bool visualize_output, bool sav
         std::cout << "Min: " << min_val << ", Mean: " << mean_val << ", Max: " << max_val << std::endl;
         std::cout << "Size: " << eigen_img.cols() << "x" << eigen_img.rows() << ", Channels: 1" << std::endl;
         std::cout << "====================================" << std::endl;
+#endif
         
         if (save_intermediate) {
             fs::path output_path = intermediate_dir / "lens_shading_correction.png";
@@ -621,6 +771,58 @@ hdr_isp::EigenImageU32 InfiniteISP::run_pipeline(bool visualize_output, bool sav
         try {
             std::cout << "BNR - Starting bayer noise reduction..." << std::endl;
             
+#ifdef USE_HYBRID_BACKEND
+            if (hdr_isp::ISPBackendWrapper::isOptimizedBackendAvailable()) {
+                std::cout << "Using Halide-optimized Bayer Noise Reduction" << std::endl;
+                
+                // Convert Eigen to Halide for processing
+                Halide::Buffer<uint32_t> halide_img = hdr_isp::eigenToHalide(eigen_img);
+                
+                // Start performance monitoring
+                hdr_isp::ISPBackendWrapper::startTimer();
+                
+                // Execute Halide-optimized bayer noise reduction
+                hdr_isp::BayerNoiseReductionHalide bnr_halide(halide_img, config_["sensor_info"], parm_bnr_);
+                halide_img = bnr_halide.execute();
+                
+                // End performance monitoring
+                double bnr_time_ms = hdr_isp::ISPBackendWrapper::endTimer();
+                std::cout << "Halide BNR execution time: " << bnr_time_ms << "ms" << std::endl;
+                
+                // Convert back to Eigen
+                eigen_img = hdr_isp::halideToEigen(halide_img);
+                
+                std::cout << "BNR - Halide bayer noise reduction completed successfully" << std::endl;
+                
+                // Debug: Print image statistics after Halide bayer noise reduction
+                uint32_t min_val = eigen_img.min();
+                uint32_t max_val = eigen_img.max();
+                float mean_val = eigen_img.mean();
+                std::cout << "=== AFTER HALIDE BAYER NOISE REDUCTION ===" << std::endl;
+                std::cout << "Type: EigenImageU32 (uint32_t)" << std::endl;
+                std::cout << "Min: " << min_val << ", Mean: " << mean_val << ", Max: " << max_val << std::endl;
+                std::cout << "Size: " << eigen_img.cols() << "x" << eigen_img.rows() << ", Channels: 1" << std::endl;
+                std::cout << "Performance: " << bnr_halide.getPerformanceStats() << std::endl;
+                std::cout << "=========================================" << std::endl;
+            } else {
+                std::cout << "Halide backend not available, using Eigen implementation" << std::endl;
+                // Use Eigen-based bayer noise reduction module directly
+                BayerNoiseReduction bnr(eigen_img, config_["sensor_info"], parm_bnr_);
+                eigen_img = bnr.execute();
+                
+                std::cout << "BNR - Bayer noise reduction completed successfully" << std::endl;
+                
+                // Debug: Print image statistics after bayer noise reduction using Eigen
+                uint32_t min_val = eigen_img.min();
+                uint32_t max_val = eigen_img.max();
+                float mean_val = eigen_img.mean();
+                std::cout << "=== AFTER BAYER NOISE REDUCTION ===" << std::endl;
+                std::cout << "Type: EigenImageU32 (uint32_t)" << std::endl;
+                std::cout << "Min: " << min_val << ", Mean: " << mean_val << ", Max: " << max_val << std::endl;
+                std::cout << "Size: " << eigen_img.cols() << "x" << eigen_img.rows() << ", Channels: 1" << std::endl;
+                std::cout << "==================================" << std::endl;
+            }
+#else
             // Use Eigen-based bayer noise reduction module directly
             BayerNoiseReduction bnr(eigen_img, config_["sensor_info"], parm_bnr_);
             eigen_img = bnr.execute();
@@ -636,6 +838,7 @@ hdr_isp::EigenImageU32 InfiniteISP::run_pipeline(bool visualize_output, bool sav
             std::cout << "Min: " << min_val << ", Mean: " << mean_val << ", Max: " << max_val << std::endl;
             std::cout << "Size: " << eigen_img.cols() << "x" << eigen_img.rows() << ", Channels: 1" << std::endl;
             std::cout << "==================================" << std::endl;
+#endif
             
             if (save_intermediate) {
                 fs::path output_path = intermediate_dir / "bayer_noise_reduction.png";
@@ -843,6 +1046,50 @@ hdr_isp::EigenImageU32 InfiniteISP::run_pipeline(bool visualize_output, bool sav
         std::cout << "CCM - eigen_img_3c.rows(): " << eigen_img_3c.rows() << std::endl;
         std::cout << "CCM - eigen_img_3c.cols(): " << eigen_img_3c.cols() << std::endl;
         
+#ifdef USE_HYBRID_BACKEND
+        if (hdr_isp::ISPBackendWrapper::isOptimizedBackendAvailable()) {
+            std::cout << "CCM - Using hybrid Color Correction Matrix" << std::endl;
+            
+            // Check if we have fixed-point data from demosaic
+            if (fp_config_.isEnabled() && eigen_img_3c_fixed.rows() > 0) {
+                std::cout << "CCM - Using fixed-point hybrid Color Correction Matrix" << std::endl;
+                // Use fixed-point hybrid Color Correction Matrix
+                ColorCorrectionMatrixHybrid ccm_hybrid(eigen_img_3c_fixed, config_["sensor_info"], parm_ccm_, fp_config_);
+                hdr_isp::EigenImage3CFixed eigen_result_fixed = ccm_hybrid.execute_fixed();
+                
+                // Update both fixed-point and floating-point versions
+                eigen_img_3c_fixed = eigen_result_fixed;
+                eigen_img_3c = eigen_result_fixed.toEigenImage3C(fp_config_.getFractionalBits());
+                std::cout << "CCM - Fixed-point hybrid execution completed" << std::endl;
+            } else {
+                std::cout << "CCM - Using floating-point hybrid Color Correction Matrix" << std::endl;
+                // Use floating-point hybrid Color Correction Matrix
+                ColorCorrectionMatrixHybrid ccm_hybrid(eigen_img_3c, config_["sensor_info"], parm_ccm_, fp_config_);
+                eigen_img_3c = ccm_hybrid.execute();
+                std::cout << "CCM - Floating-point hybrid execution completed" << std::endl;
+            }
+        } else {
+            // Fallback to original implementation
+            // Check if we have fixed-point data from demosaic
+            if (fp_config_.isEnabled() && eigen_img_3c_fixed.rows() > 0) {
+                std::cout << "CCM - Using fixed-point Color Correction Matrix (fallback)" << std::endl;
+                // Use fixed-point Color Correction Matrix
+                ColorCorrectionMatrix ccm(eigen_img_3c_fixed, config_["sensor_info"], parm_ccm_, fp_config_);
+                hdr_isp::EigenImage3CFixed eigen_result_fixed = ccm.execute_fixed();
+                
+                // Update both fixed-point and floating-point versions
+                eigen_img_3c_fixed = eigen_result_fixed;
+                eigen_img_3c = eigen_result_fixed.toEigenImage3C(fp_config_.getFractionalBits());
+                std::cout << "CCM - Fixed-point execution completed" << std::endl;
+            } else {
+                std::cout << "CCM - Using floating-point Color Correction Matrix (fallback)" << std::endl;
+                // Use floating-point Color Correction Matrix
+                ColorCorrectionMatrix ccm(eigen_img_3c, config_["sensor_info"], parm_ccm_, fp_config_);
+                eigen_img_3c = ccm.execute();
+                std::cout << "CCM - Floating-point execution completed" << std::endl;
+            }
+        }
+#else
         // Check if we have fixed-point data from demosaic
         if (fp_config_.isEnabled() && eigen_img_3c_fixed.rows() > 0) {
             std::cout << "CCM - Using fixed-point Color Correction Matrix" << std::endl;
@@ -861,6 +1108,7 @@ hdr_isp::EigenImageU32 InfiniteISP::run_pipeline(bool visualize_output, bool sav
             eigen_img_3c = ccm.execute();
             std::cout << "CCM - Floating-point execution completed" << std::endl;
         }
+#endif
         
         if (save_intermediate) {
             fs::path output_path = intermediate_dir / "color_correction_matrix.png";
@@ -1077,9 +1325,31 @@ hdr_isp::EigenImageU32 InfiniteISP::run_pipeline(bool visualize_output, bool sav
     // 20. RGB conversion
     std::cout << "RGB conversion" << std::endl;
     if (parm_rgb_["is_enable"].as<bool>()) {
+#ifdef USE_HYBRID_BACKEND
+        if (hdr_isp::ISPBackendWrapper::isOptimizedBackendAvailable()) {
+            std::cout << "Using hybrid RGB conversion" << std::endl;
+            
+            // Start performance monitoring
+            hdr_isp::ISPBackendWrapper::startTimer();
+            
+            // Execute hybrid RGB conversion
+            RGBConversionHybrid rgb_hybrid(eigen_img_3c, config_["platform"], config_["sensor_info"], parm_rgb_, parm_csc_);
+            eigen_img_3c = rgb_hybrid.execute_eigen();
+            
+            // End performance monitoring
+            double rgb_time_ms = hdr_isp::ISPBackendWrapper::endTimer();
+            std::cout << "Hybrid RGB conversion execution time: " << rgb_time_ms << "ms" << std::endl;
+        } else {
+            std::cout << "Hybrid backend not available, using Eigen implementation" << std::endl;
+            // Use Eigen-based RGBConversion module directly
+            RGBConversion rgb_conv(eigen_img_3c, config_["platform"], config_["sensor_info"], parm_rgb_, parm_csc_);
+            eigen_img_3c = rgb_conv.execute_eigen();
+        }
+#else
         // Use Eigen-based RGBConversion module directly
         RGBConversion rgb_conv(eigen_img_3c, config_["platform"], config_["sensor_info"], parm_rgb_, parm_csc_);
         eigen_img_3c = rgb_conv.execute_eigen();
+#endif
         
         if (save_intermediate) {
             fs::path output_path = intermediate_dir / "rgb_conversion.png";
@@ -1114,9 +1384,31 @@ hdr_isp::EigenImageU32 InfiniteISP::run_pipeline(bool visualize_output, bool sav
                 conv_std_value = parm_csc_["conv_std"].as<int>();
             }
             
+#ifdef USE_HYBRID_BACKEND
+            if (hdr_isp::ISPBackendWrapper::isOptimizedBackendAvailable()) {
+                std::cout << "Using hybrid Scale module" << std::endl;
+                
+                // Start performance monitoring
+                hdr_isp::ISPBackendWrapper::startTimer();
+                
+                // Execute hybrid scale
+                ScaleHybrid scale_hybrid(eigen_img_3c, config_["platform"], config_["sensor_info"], parm_sca_, conv_std_value);
+                eigen_img_3c = scale_hybrid.execute_eigen();
+                
+                // End performance monitoring
+                double scale_time_ms = hdr_isp::ISPBackendWrapper::endTimer();
+                std::cout << "Hybrid Scale execution time: " << scale_time_ms << "ms" << std::endl;
+            } else {
+                std::cout << "Hybrid backend not available, using Eigen implementation" << std::endl;
+                // Use Eigen-based Scale module directly
+                Scale scale(eigen_img_3c, config_["platform"], config_["sensor_info"], parm_sca_, conv_std_value);
+                eigen_img_3c = scale.execute_eigen();
+            }
+#else
             // Use Eigen-based Scale module directly
             Scale scale(eigen_img_3c, config_["platform"], config_["sensor_info"], parm_sca_, conv_std_value);
             eigen_img_3c = scale.execute_eigen();
+#endif
             
         } catch (const std::exception& e) {
             std::cerr << "Exception during Scale creation/execution: " << e.what() << std::endl;

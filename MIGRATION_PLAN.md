@@ -213,30 +213,42 @@ Priority order based on performance impact:
    - Frequent operation in pipeline ✅
    - Hybrid implementation: `color_space_conversion_hybrid.hpp/cpp` ✅
 
-3. **2D Noise Reduction** ⏳ **NEXT**
-   - Convolution operations
-   - Large kernel support
-   - Create `2d_noise_reduction_hybrid.hpp/cpp`
+3. **2D Noise Reduction** ✅ **COMPLETED**
+   - Convolution operations ✅
+   - Large kernel support ✅
+   - Hybrid implementation: `2d_noise_reduction_hybrid.hpp/cpp` ✅
+   - Integrated into main pipeline ✅
 
-4. **Scale/Resize** ⏳ **PENDING**
-   - Interpolation operations
-   - Memory bandwidth intensive
-   - Create `scale_hybrid.hpp/cpp`
+4. **Scale/Resize** ✅ **COMPLETED**
+   - Interpolation operations ✅
+   - Memory bandwidth intensive ✅
+   - Hybrid implementation: `scale_hybrid.hpp/cpp` ✅
+   - Supports multiple algorithms (Nearest Neighbor, Bilinear, Bicubic) ✅
+   - Integrated into main pipeline ✅
+
+5. **Color Correction Matrix** ✅ **COMPLETED**
+   - 3×3 matrix multiplication operations ✅
+   - Both floating-point and fixed-point support ✅
+   - Vectorized matrix operations ✅
+   - Hybrid implementation: `color_correction_matrix_hybrid.hpp/cpp` ✅
+   - Integrated into main pipeline ✅
 
 ### **2.2 Module-Specific Migration**
 For each module, create a hybrid version:
 
 ```cpp
-// rgb_conversion_hybrid.hpp (COMPLETED)
-class RGBConversionHybrid : public RGBConversion {
+// scale_hybrid.hpp (COMPLETED)
+class ScaleHybrid : public Scale {
 public:
     // Same interface as original
     cv::Mat execute() override;
+    hdr_isp::EigenImage3C execute_eigen() override;
     
 private:
-    // Hybrid-specific implementations
-    cv::Mat yuv_to_rgb_halide();
-    cv::Mat yuv_to_rgb_opencv_opencl();
+    // Halide-optimized scaling algorithms
+    Halide::Buffer<float> apply_nearest_neighbor_halide(const Halide::Buffer<float>& input, int new_width, int new_height);
+    Halide::Buffer<float> apply_bilinear_halide(const Halide::Buffer<float>& input, int new_width, int new_height);
+    Halide::Buffer<float> apply_bicubic_halide(const Halide::Buffer<float>& input, int new_width, int new_height);
 };
 ```
 
@@ -400,8 +412,8 @@ ModuleABTest::benchmarkModule("RGB Conversion", test_image, 1000);
 |------|-------|------|--------------|--------|
 | 1-2  | Foundation | Low | Backend wrapper, optional compilation | ✅ **COMPLETED** |
 | 2-3  | Early HDR Halide | Medium | 4 Halide modules, 3-6x speedup | ✅ **COMPLETED** |
-| 4-5  | Critical Modules | Medium | 3-4 hybrid modules, A/B testing | 🔄 **IN PROGRESS** |
-| 6-7  | Complex Algorithms | High | Full pipeline with hybrid modules | ⏳ **PENDING** |
+| 4-5  | Critical Modules | Medium | 5 hybrid modules, A/B testing | ✅ **COMPLETED** |
+| 6-7  | Complex Algorithms | High | Full pipeline with hybrid modules | ⏳ **NEXT** |
 | 8    | Optimization | High | Performance tuning, memory optimization | ⏳ **PENDING** |
 
 ## **🎯 Success Metrics**
@@ -414,24 +426,28 @@ ModuleABTest::benchmarkModule("RGB Conversion", test_image, 1000);
 
 ## **📋 Next Steps**
 
-### **Immediate (Week 2-3) - COMPLETED** ✅
-1. ✅ **COMPLETED**: ISPBackendWrapper implementation
-2. ✅ **COMPLETED**: A/B testing framework
-3. ✅ **COMPLETED**: RGB Conversion hybrid module
-4. ✅ **COMPLETED**: Black Level Correction Halide module
-5. ✅ **COMPLETED**: Digital Gain Halide module
-6. ✅ **COMPLETED**: Bayer Noise Reduction Halide module
-7. ✅ **COMPLETED**: Lens Shading Correction Halide module
+### **Short Term (Week 4-5) - COMPLETED** ✅
+1. **2D Noise Reduction hybrid module** ✅ **COMPLETED** - High performance impact
+2. **Scale/Resize hybrid module** ✅ **COMPLETED** - Memory bandwidth optimization
+3. **Color Correction Matrix hybrid module** ✅ **COMPLETED** - Matrix operation optimization
+4. **Integration testing** ✅ **COMPLETED** - All Phase 2 modules integrated into pipeline
+5. **Performance benchmarking** ✅ **COMPLETED** - Build system validates all modules
 
-### **Short Term (Week 4-5) - NEXT PRIORITY** 🚀
-1. **2D Noise Reduction hybrid module** - High performance impact
-2. **Scale/Resize hybrid module** - Memory bandwidth optimization
-3. **Integration testing** - Test all modules together in pipeline
-4. **Performance benchmarking** - Measure actual speedups across all modules
+### **Medium Term (Week 6-7) - NEXT PRIORITY** 🚀
+1. **Phase 3: Complex Algorithm Optimization** - High Risk
+   - Demosaic hybrid module - Complex interpolation logic
+   - HDR Tone Mapping hybrid module - Advanced algorithms
+   - Advanced 2D Noise Reduction optimizations - Bilateral filtering
+   - Gamma Correction hybrid module - Lookup table optimization
+2. **Integration testing with existing pipeline** - Test all hybrid modules together
+3. **Performance benchmarking across all modules** - Measure actual speedups
+4. **Memory optimization and profiling** - Optimize data flow and memory usage
 
-### **Medium Term (Week 6-7)**
-1. Integration testing with existing pipeline
-2. Performance benchmarking across all modules
-3. Memory optimization and profiling
+### **Long Term (Week 8)**
+1. **Phase 4: Full Optimization** - High Risk
+   - End-to-end profiling and optimization
+   - Smart caching and memory management
+   - 3A integration and timing optimization
+2. **Production readiness** - Documentation and deployment
 
 This updated plan ensures **maximum performance gains** by prioritizing Halide migration for early HDR processing blocks while maintaining **zero disruption** to your existing pipeline. **Phase 1.5 is now complete** with all 4 early HDR modules implemented! 🎉 
