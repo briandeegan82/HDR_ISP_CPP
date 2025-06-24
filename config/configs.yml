@@ -121,9 +121,9 @@ gamma_correction:
   is_debug: false
 
 hdr_durand:
-  is_enable: false
-  is_save: false
-  is_debug: false
+  is_enable: true
+  is_save: true
+  is_debug: true
   sigma_space: 2.0
   sigma_color: 0.1
   contrast_factor: 5.0

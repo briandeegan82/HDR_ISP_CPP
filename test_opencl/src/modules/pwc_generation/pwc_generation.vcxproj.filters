@@ -1,0 +1,24 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="17.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <ClCompile Include="C:\workspace\HDR_ISP_CPP\src\modules\pwc_generation\pwc_generation.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="C:\workspace\HDR_ISP_CPP\src\modules\pwc_generation\pwc_generation.hpp">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <CustomBuild Include="C:\workspace\HDR_ISP_CPP\src\modules\pwc_generation\CMakeLists.txt" />
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="Header Files">
+      <UniqueIdentifier>{704C7532-182F-3B8A-A545-9F80E2BAF4D9}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files">
+      <UniqueIdentifier>{A3C7CF1A-58AF-36EC-BB4B-2AB8F536B2A6}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>

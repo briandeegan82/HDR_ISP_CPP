@@ -25,6 +25,8 @@
 #include "modules/rgb_conversion/rgb_conversion_hybrid.hpp"
 #include "modules/scale/scale_hybrid.hpp"
 #include "modules/color_correction_matrix/color_correction_matrix_hybrid.hpp"
+#include "modules/demosaic/demosaic_hybrid.hpp"
+#include "modules/hdr_durand/hdr_durand_hybrid.hpp"
 #include "common/halide_utils.hpp"
 #include "isp_backend_wrapper.hpp"
 #endif
@@ -938,6 +940,62 @@ hdr_isp::EigenImageU32 InfiniteISP::run_pipeline(bool visualize_output, bool sav
     // 11. HDR tone mapping
     std::cout << "HDR tone mapping" << std::endl;
     if (parm_durand_["is_enable"].as<bool>()) {
+#ifdef USE_HYBRID_BACKEND
+        if (hdr_isp::ISPBackendWrapper::isOptimizedBackendAvailable()) {
+            std::cout << "HDR Tone Mapping - Using hybrid HDR Durand" << std::endl;
+            
+            // Use hybrid HDR tone mapping module
+            HDRDurandToneMappingHybrid hdr_hybrid(eigen_img, config_["platform"], config_["sensor_info"], parm_durand_);
+            eigen_img = hdr_hybrid.execute_eigen();
+            
+            if (save_intermediate) {
+                fs::path output_path = intermediate_dir / "hdr_tone_mapping_hybrid.png";
+                // Convert to OpenCV for saving
+                opencv_img = eigen_img.toOpenCV(CV_32S);
+                // Debug: Print image statistics before saving
+                cv::minMaxLoc(opencv_img, &min_val_cv, &max_val_cv);
+                mean_val_cv = cv::mean(opencv_img);
+                std::cout << "HDR Hybrid - Mean: " << mean_val_cv[0] << ", Min: " << min_val_cv << ", Max: " << max_val_cv << ", Type: " << opencv_img.type() << std::endl;
+                
+                // Convert to 8-bit for display
+                cv::Mat save_img;
+                if (opencv_img.type() == CV_32F) {
+                    opencv_img.convertTo(save_img, CV_8U, 255.0);
+                } else if (opencv_img.type() == CV_16U) {
+                    opencv_img.convertTo(save_img, CV_8U, 255.0 / 65535.0);
+                } else {
+                    opencv_img.convertTo(save_img, CV_8U, 255.0 / ((1 << sensor_info_.bit_depth) - 1));
+                }
+                cv::imwrite(output_path.string(), save_img);
+            }
+        } else {
+            // Fallback to original implementation
+            std::cout << "HDR Tone Mapping - Using original implementation (fallback)" << std::endl;
+            HDRDurandToneMapping hdr(eigen_img, config_["platform"], config_["sensor_info"], parm_durand_);
+            eigen_img = hdr.execute_eigen();
+            
+            if (save_intermediate) {
+                fs::path output_path = intermediate_dir / "hdr_tone_mapping.png";
+                // Convert to OpenCV for saving
+                opencv_img = eigen_img.toOpenCV(CV_32S);
+                // Debug: Print image statistics before saving
+                cv::minMaxLoc(opencv_img, &min_val_cv, &max_val_cv);
+                mean_val_cv = cv::mean(opencv_img);
+                std::cout << "HDR - Mean: " << mean_val_cv[0] << ", Min: " << min_val_cv << ", Max: " << max_val_cv << ", Type: " << opencv_img.type() << std::endl;
+                
+                // Convert to 8-bit for display
+                cv::Mat save_img;
+                if (opencv_img.type() == CV_32F) {
+                    opencv_img.convertTo(save_img, CV_8U, 255.0);
+                } else if (opencv_img.type() == CV_16U) {
+                    opencv_img.convertTo(save_img, CV_8U, 255.0 / 65535.0);
+                } else {
+                    opencv_img.convertTo(save_img, CV_8U, 255.0 / ((1 << sensor_info_.bit_depth) - 1));
+                }
+                cv::imwrite(output_path.string(), save_img);
+            }
+        }
+#else
         // Use Eigen-based HDR tone mapping module directly
         HDRDurandToneMapping hdr(eigen_img, config_["platform"], config_["sensor_info"], parm_durand_);
         eigen_img = hdr.execute_eigen();
@@ -962,6 +1020,7 @@ hdr_isp::EigenImageU32 InfiniteISP::run_pipeline(bool visualize_output, bool sav
             }
             cv::imwrite(output_path.string(), save_img);
         }
+#endif
     }
 
     // =====================================================================
@@ -970,6 +1029,144 @@ hdr_isp::EigenImageU32 InfiniteISP::run_pipeline(bool visualize_output, bool sav
     if (parm_dem_["is_enable"].as<bool>()) {
         std::cout << "Applying demosaic..." << std::endl;
         
+#ifdef USE_HYBRID_BACKEND
+        if (hdr_isp::ISPBackendWrapper::isOptimizedBackendAvailable()) {
+            std::cout << "Demosaic - Using hybrid Demosaic" << std::endl;
+            
+            // Check if fixed-point is enabled
+            if (fp_config_.isEnabled()) {
+                std::cout << "Demosaic - Using fixed-point hybrid demosaic output..." << std::endl;
+                // Use hybrid demosaic module with fixed-point output
+                DemosaicHybrid demosaic_hybrid(eigen_img, sensor_info_.bayer_pattern, fp_config_, sensor_info_.bit_depth, save_intermediate);
+                hdr_isp::EigenImage3CFixed eigen_result_fixed = demosaic_hybrid.execute_fixed();
+                
+                std::cout << "Demosaic - Fixed-point hybrid result rows: " << eigen_result_fixed.rows() << ", cols: " << eigen_result_fixed.cols() << std::endl;
+                
+                // Keep fixed-point result for fixed-point pipeline
+                eigen_img_3c_fixed = eigen_result_fixed;
+                // Also convert to floating-point for compatibility
+                eigen_img_3c = eigen_result_fixed.toEigenImage3C(fp_config_.getFractionalBits());
+                
+                std::cout << "Demosaic - After assignment, eigen_img_3c_fixed rows: " << eigen_img_3c_fixed.rows() << ", cols: " << eigen_img_3c_fixed.cols() << std::endl;
+                
+                if (save_intermediate) {
+                    fs::path output_path = intermediate_dir / "demosaic_hybrid_fixed.png";
+                    // Debug: Print image statistics before saving
+                    cv::Mat temp_img = eigen_result_fixed.toOpenCV(fp_config_.getFractionalBits(), CV_32FC3);
+                    cv::minMaxLoc(temp_img, &min_val_cv, &max_val_cv);
+                    mean_val_cv = cv::mean(temp_img);
+                    std::cout << "Demosaic Hybrid Fixed - Mean: " << mean_val_cv << ", Min: " << min_val_cv << ", Max: " << max_val_cv << ", Type: " << temp_img.type() << ", Channels: " << temp_img.channels() << std::endl;
+                    std::cout << "Fixed-point fractional bits: " << fp_config_.getFractionalBits() << std::endl;
+                    
+                    // Convert to 8-bit for display
+                    cv::Mat save_img;
+                    if (temp_img.type() == CV_32FC3) {
+                        temp_img.convertTo(save_img, CV_8UC3, 255.0);
+                    } else if (temp_img.type() == CV_16UC3) {
+                        temp_img.convertTo(save_img, CV_8UC3, 255.0 / 65535.0);
+                    } else {
+                        temp_img.convertTo(save_img, CV_8UC3, 255.0 / ((1 << sensor_info_.bit_depth) - 1));
+                    }
+                    cv::imwrite(output_path.string(), save_img);
+                }
+            } else {
+                // Use hybrid floating-point demosaic
+                std::cout << "Demosaic - Using floating-point hybrid demosaic..." << std::endl;
+                DemosaicHybrid demosaic_hybrid(eigen_img, sensor_info_.bayer_pattern, sensor_info_.bit_depth, save_intermediate);
+                hdr_isp::EigenImage3C eigen_result = demosaic_hybrid.execute();
+                
+                // Keep floating-point result
+                eigen_img_3c = eigen_result;
+                
+                if (save_intermediate) {
+                    fs::path output_path = intermediate_dir / "demosaic_hybrid.png";
+                    // Debug: Print image statistics before saving
+                    cv::Mat temp_img = eigen_result.toOpenCV(CV_32FC3);
+                    cv::minMaxLoc(temp_img, &min_val_cv, &max_val_cv);
+                    mean_val_cv = cv::mean(temp_img);
+                    std::cout << "Demosaic Hybrid - Mean: " << mean_val_cv << ", Min: " << min_val_cv << ", Max: " << max_val_cv << ", Type: " << temp_img.type() << ", Channels: " << temp_img.channels() << std::endl;
+                    
+                    // Convert to 8-bit for display
+                    cv::Mat save_img;
+                    if (temp_img.type() == CV_32FC3) {
+                        temp_img.convertTo(save_img, CV_8UC3, 255.0);
+                    } else if (temp_img.type() == CV_16UC3) {
+                        temp_img.convertTo(save_img, CV_8UC3, 255.0 / 65535.0);
+                    } else {
+                        eigen_img_3c.toOpenCV(CV_32FC3).convertTo(save_img, CV_8UC3, 255.0 / ((1 << sensor_info_.bit_depth) - 1));
+                    }
+                    cv::imwrite(output_path.string(), save_img);
+                }
+            }
+        } else {
+            // Fallback to original implementation
+            // Check if fixed-point is enabled
+            if (fp_config_.isEnabled()) {
+                std::cout << "Demosaic - Using fixed-point demosaic output (fallback)..." << std::endl;
+                // Use Eigen-based demosaic module with fixed-point output
+                Demosaic demosaic(eigen_img, sensor_info_.bayer_pattern, fp_config_, sensor_info_.bit_depth, save_intermediate);
+                hdr_isp::EigenImage3CFixed eigen_result_fixed = demosaic.execute_fixed();
+                
+                std::cout << "Demosaic - Fixed-point result rows: " << eigen_result_fixed.rows() << ", cols: " << eigen_result_fixed.cols() << std::endl;
+                
+                // Keep fixed-point result for fixed-point pipeline
+                eigen_img_3c_fixed = eigen_result_fixed;
+                // Also convert to floating-point for compatibility
+                eigen_img_3c = eigen_result_fixed.toEigenImage3C(fp_config_.getFractionalBits());
+                
+                std::cout << "Demosaic - After assignment, eigen_img_3c_fixed rows: " << eigen_img_3c_fixed.rows() << ", cols: " << eigen_img_3c_fixed.cols() << std::endl;
+                
+                if (save_intermediate) {
+                    fs::path output_path = intermediate_dir / "demosaic_fixed.png";
+                    // Debug: Print image statistics before saving
+                    cv::Mat temp_img = eigen_result_fixed.toOpenCV(fp_config_.getFractionalBits(), CV_32FC3);
+                    cv::minMaxLoc(temp_img, &min_val_cv, &max_val_cv);
+                    mean_val_cv = cv::mean(temp_img);
+                    std::cout << "Demosaic Fixed - Mean: " << mean_val_cv << ", Min: " << min_val_cv << ", Max: " << max_val_cv << ", Type: " << temp_img.type() << ", Channels: " << temp_img.channels() << std::endl;
+                    std::cout << "Fixed-point fractional bits: " << fp_config_.getFractionalBits() << std::endl;
+                    
+                    // Convert to 8-bit for display
+                    cv::Mat save_img;
+                    if (temp_img.type() == CV_32FC3) {
+                        temp_img.convertTo(save_img, CV_8UC3, 255.0);
+                    } else if (temp_img.type() == CV_16UC3) {
+                        temp_img.convertTo(save_img, CV_8UC3, 255.0 / 65535.0);
+                    } else {
+                        temp_img.convertTo(save_img, CV_8UC3, 255.0 / ((1 << sensor_info_.bit_depth) - 1));
+                    }
+                    cv::imwrite(output_path.string(), save_img);
+                }
+            } else {
+                // Use original floating-point demosaic
+                std::cout << "Demosaic - Using floating-point demosaic (fallback)..." << std::endl;
+                Demosaic demosaic(eigen_img, sensor_info_.bayer_pattern, sensor_info_.bit_depth, save_intermediate);
+                hdr_isp::EigenImage3C eigen_result = demosaic.execute();
+                
+                // Keep floating-point result
+                eigen_img_3c = eigen_result;
+                
+                if (save_intermediate) {
+                    fs::path output_path = intermediate_dir / "demosaic.png";
+                    // Debug: Print image statistics before saving
+                    cv::Mat temp_img = eigen_result.toOpenCV(CV_32FC3);
+                    cv::minMaxLoc(temp_img, &min_val_cv, &max_val_cv);
+                    mean_val_cv = cv::mean(temp_img);
+                    std::cout << "Demosaic - Mean: " << mean_val_cv << ", Min: " << min_val_cv << ", Max: " << max_val_cv << ", Type: " << temp_img.type() << ", Channels: " << temp_img.channels() << std::endl;
+                    
+                    // Convert to 8-bit for display
+                    cv::Mat save_img;
+                    if (temp_img.type() == CV_32FC3) {
+                        temp_img.convertTo(save_img, CV_8UC3, 255.0);
+                    } else if (temp_img.type() == CV_16UC3) {
+                        temp_img.convertTo(save_img, CV_8UC3, 255.0 / 65535.0);
+                    } else {
+                        eigen_img_3c.toOpenCV(CV_32FC3).convertTo(save_img, CV_8UC3, 255.0 / ((1 << sensor_info_.bit_depth) - 1));
+                    }
+                    cv::imwrite(output_path.string(), save_img);
+                }
+            }
+        }
+#else
         // Check if fixed-point is enabled
         if (fp_config_.isEnabled()) {
             std::cout << "Using fixed-point demosaic output..." << std::endl;
@@ -1034,6 +1231,7 @@ hdr_isp::EigenImageU32 InfiniteISP::run_pipeline(bool visualize_output, bool sav
                 cv::imwrite(output_path.string(), save_img);
             }
         }
+#endif
     }
 
     // =====================================================================
