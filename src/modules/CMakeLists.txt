@@ -60,6 +60,11 @@ if(USE_HYBRID_BACKEND)
             bayer_noise_reduction_halide
             rgb_conversion_hybrid
             color_space_conversion_hybrid
+            scale_hybrid
+            color_correction_matrix_hybrid
+            demosaic_hybrid
+            hdr_durand_hybrid
+            gamma_correction
     )
 else()
     # Link OpenCV and other dependencies to the modules library

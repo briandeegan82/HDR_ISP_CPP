@@ -1,6 +1,9 @@
 #include "infinite_isp.hpp"
 #include "modules/demosaic/demosaic.hpp"
 #include "modules/gamma_correction/gamma_correction.hpp"
+#ifdef USE_HYBRID_BACKEND
+#include "modules/gamma_correction/gamma_correction_hybrid.hpp"
+#endif
 #include "modules/auto_exposure/auto_exposure.hpp"
 #include "modules/auto_white_balance/auto_white_balance.hpp"
 #include "modules/bayer_noise_reduction/bayer_noise_reduction.hpp"
@@ -1336,32 +1339,81 @@ hdr_isp::EigenImageU32 InfiniteISP::run_pipeline(bool visualize_output, bool sav
     if (parm_gmc_["is_enable"].as<bool>()) {
         std::cout << "Applying gamma correction..." << std::endl;
         
-        // Convert cv::Mat to EigenImage3C for gamma correction
-        hdr_isp::EigenImage3C eigen_img = eigen_img_3c;
-        GammaCorrection gamma(eigen_img, config_["platform"], config_["sensor_info"], parm_gmc_);
-        eigen_img = gamma.execute();
-        
-        // Convert back to cv::Mat
-        eigen_img_3c = eigen_img;
+#ifdef USE_HYBRID_BACKEND
+        if (hdr_isp::ISPBackendWrapper::isOptimizedBackendAvailable()) {
+            std::cout << "Gamma - Using hybrid Gamma Correction" << std::endl;
+            
+            // Use hybrid gamma correction module
+            GammaCorrectionHybrid gamma_hybrid(eigen_img_3c, config_["platform"], config_["sensor_info"], parm_gmc_);
+            eigen_img_3c = gamma_hybrid.execute();
+            
+            if (save_intermediate) {
+                fs::path output_path = intermediate_dir / "gamma_correction_hybrid.png";
+                // Debug: Print image statistics before saving
+                cv::minMaxLoc(eigen_img_3c.toOpenCV(CV_32FC3), &min_val_cv, &max_val_cv);
+                mean_val_cv = cv::mean(eigen_img_3c.toOpenCV(CV_32FC3));
+                std::cout << "Gamma Hybrid - Mean: " << mean_val_cv << ", Min: " << min_val_cv << ", Max: " << max_val_cv << ", Type: " << eigen_img_3c.toOpenCV(CV_32FC3).type() << ", Channels: " << eigen_img_3c.toOpenCV(CV_32FC3).channels() << std::endl;
+                
+                // Convert to 8-bit for display
+                cv::Mat save_img;
+                if (eigen_img_3c.toOpenCV(CV_32FC3).type() == CV_32FC3) {
+                    eigen_img_3c.toOpenCV(CV_32FC3).convertTo(save_img, CV_8UC3, 255.0);
+                } else if (eigen_img_3c.toOpenCV(CV_32FC3).type() == CV_16UC3) {
+                    eigen_img_3c.toOpenCV(CV_32FC3).convertTo(save_img, CV_8UC3, 255.0 / 65535.0);
+                } else {
+                    eigen_img_3c.toOpenCV(CV_32FC3).convertTo(save_img, CV_8UC3, 255.0 / ((1 << sensor_info_.bit_depth) - 1));
+                }
+                cv::imwrite(output_path.string(), save_img);
+            }
+        } else {
+            std::cout << "Gamma - Using original implementation (fallback)" << std::endl;
+            // Use original gamma correction
+            GammaCorrection gamma(eigen_img_3c, config_["platform"], config_["sensor_info"], parm_gmc_);
+            eigen_img_3c = gamma.execute();
+            
+            if (save_intermediate) {
+                fs::path output_path = intermediate_dir / "gamma_correction.png";
+                // Debug: Print image statistics before saving
+                cv::minMaxLoc(eigen_img_3c.toOpenCV(CV_32FC3), &min_val_cv, &max_val_cv);
+                mean_val_cv = cv::mean(eigen_img_3c.toOpenCV(CV_32FC3));
+                std::cout << "Gamma - Mean: " << mean_val_cv << ", Min: " << min_val_cv << ", Max: " << max_val_cv << ", Type: " << eigen_img_3c.toOpenCV(CV_32FC3).type() << ", Channels: " << eigen_img_3c.toOpenCV(CV_32FC3).channels() << std::endl;
+                
+                // Convert to 8-bit for display
+                cv::Mat save_img;
+                if (eigen_img_3c.toOpenCV(CV_32FC3).type() == CV_32FC3) {
+                    eigen_img_3c.toOpenCV(CV_32FC3).convertTo(save_img, CV_8UC3, 255.0);
+                } else if (eigen_img_3c.toOpenCV(CV_32FC3).type() == CV_16UC3) {
+                    eigen_img_3c.toOpenCV(CV_32FC3).convertTo(save_img, CV_8UC3, 255.0 / 65535.0);
+                } else {
+                    eigen_img_3c.toOpenCV(CV_32FC3).convertTo(save_img, CV_8UC3, 255.0 / ((1 << sensor_info_.bit_depth) - 1));
+                }
+                cv::imwrite(output_path.string(), save_img);
+            }
+        }
+#else
+        // Use original gamma correction
+        GammaCorrection gamma(eigen_img_3c, config_["platform"], config_["sensor_info"], parm_gmc_);
+        eigen_img_3c = gamma.execute();
         
         if (save_intermediate) {
             fs::path output_path = intermediate_dir / "gamma_correction.png";
             // Debug: Print image statistics before saving
-            cv::minMaxLoc(eigen_img.toOpenCV(CV_32FC3), &min_val_cv, &max_val_cv);
-            mean_val_cv = cv::mean(eigen_img.toOpenCV(CV_32FC3));
-            std::cout << "Gamma - Mean: " << mean_val_cv << ", Min: " << min_val_cv << ", Max: " << max_val_cv << ", Type: " << eigen_img.toOpenCV(CV_32FC3).type() << ", Channels: " << eigen_img.toOpenCV(CV_32FC3).channels() << std::endl;
+            cv::minMaxLoc(eigen_img_3c.toOpenCV(CV_32FC3), &min_val_cv, &max_val_cv);
+            mean_val_cv = cv::mean(eigen_img_3c.toOpenCV(CV_32FC3));
+            std::cout << "Gamma - Mean: " << mean_val_cv << ", Min: " << min_val_cv << ", Max: " << max_val_cv << ", Type: " << eigen_img_3c.toOpenCV(CV_32FC3).type() << ", Channels: " << eigen_img_3c.toOpenCV(CV_32FC3).channels() << std::endl;
             
             // Convert to 8-bit for display
             cv::Mat save_img;
-            if (eigen_img.toOpenCV(CV_32FC3).type() == CV_32FC3) {
-                eigen_img.toOpenCV(CV_32FC3).convertTo(save_img, CV_8UC3, 255.0);
-            } else if (eigen_img.toOpenCV(CV_32FC3).type() == CV_16UC3) {
-                eigen_img.toOpenCV(CV_32FC3).convertTo(save_img, CV_8UC3, 255.0 / 65535.0);
+            if (eigen_img_3c.toOpenCV(CV_32FC3).type() == CV_32FC3) {
+                eigen_img_3c.toOpenCV(CV_32FC3).convertTo(save_img, CV_8UC3, 255.0);
+            } else if (eigen_img_3c.toOpenCV(CV_32FC3).type() == CV_16UC3) {
+                eigen_img_3c.toOpenCV(CV_32FC3).convertTo(save_img, CV_8UC3, 255.0 / 65535.0);
             } else {
-                eigen_img.toOpenCV(CV_32FC3).convertTo(save_img, CV_8UC3, 255.0 / ((1 << sensor_info_.bit_depth) - 1));
+                eigen_img_3c.toOpenCV(CV_32FC3).convertTo(save_img, CV_8UC3, 255.0 / ((1 << sensor_info_.bit_depth) - 1));
             }
             cv::imwrite(output_path.string(), save_img);
         }
+#endif
     }
 
     // =====================================================================
@@ -1369,8 +1421,23 @@ hdr_isp::EigenImageU32 InfiniteISP::run_pipeline(bool visualize_output, bool sav
     std::cout << "Auto-Exposure" << std::endl;
     if (parm_ae_["is_enable"].as<bool>()) {
         std::cout << "Applying auto exposure..." << std::endl;
-        AutoExposure ae(eigen_img_3c.toOpenCV(CV_32FC3), config_["sensor_info"], parm_ae_);
+        
+        // Debug: Print image information before auto-exposure
+        cv::Mat input_img = eigen_img_3c.toOpenCV(CV_32FC3);
+        std::cout << "Auto-Exposure Debug - Input image:" << std::endl;
+        std::cout << "  Channels: " << input_img.channels() << std::endl;
+        std::cout << "  Size: " << input_img.cols << "x" << input_img.rows << std::endl;
+        std::cout << "  Type: " << input_img.type() << std::endl;
+        
+        double min_val_cv, max_val_cv;
+        cv::minMaxLoc(input_img, &min_val_cv, &max_val_cv);
+        cv::Scalar mean_val_cv = cv::mean(input_img);
+        std::cout << "  Min: " << min_val_cv << ", Mean: " << mean_val_cv << ", Max: " << max_val_cv << std::endl;
+        
+        AutoExposure ae(input_img, config_["sensor_info"], parm_ae_);
         ae_feedback_ = ae.execute();
+        
+        std::cout << "Auto-Exposure Debug - Feedback: " << ae_feedback_ << std::endl;
         
         if (save_intermediate) {
             fs::path output_path = intermediate_dir / "auto_exposure.png";

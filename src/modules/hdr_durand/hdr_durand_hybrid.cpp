@@ -279,75 +279,176 @@ void HDRDurandToneMappingHybrid::bilateral_filter_simd_impl(const cv::Mat& input
 #ifdef USE_HYBRID_BACKEND
 
 cv::Mat HDRDurandToneMappingHybrid::execute_halide_cpu() {
-    // For now, fall back to CPU implementation
-    return execute_opencv_cpu();
+    if (is_debug_) {
+        std::cout << "HDR Hybrid - Using Halide CPU backend" << std::endl;
+    }
+    
+    // Convert OpenCV to Halide
+    Halide::Buffer<float> input_buffer = cv_mat_to_halide(img_);
+    
+    // Apply Halide Durand algorithm
+    Halide::Buffer<float> output_buffer = tone_mapping_halide_cpu(input_buffer);
+    
+    // Convert back to OpenCV
+    cv::Mat result = halide_to_cv_mat(output_buffer, img_.rows, img_.cols);
+    
+    return result;
 }
 
 hdr_isp::EigenImageU32 HDRDurandToneMappingHybrid::execute_eigen_halide_cpu() {
-    // For now, fall back to CPU implementation
-    return execute_eigen_opencv_cpu();
+    if (is_debug_) {
+        std::cout << "HDR Hybrid - Using Halide CPU backend (Eigen)" << std::endl;
+    }
+    
+    // Convert Eigen to Halide
+    Halide::Buffer<float> input_buffer = eigen_to_halide(eigen_img_);
+    
+    // Apply Halide Durand algorithm
+    Halide::Buffer<float> output_buffer = tone_mapping_halide_cpu(input_buffer);
+    
+    // Convert back to Eigen
+    hdr_isp::EigenImage result = halide_to_eigen(output_buffer, eigen_img_.rows(), eigen_img_.cols());
+    
+    // Convert to EigenImageU32
+    hdr_isp::EigenImageU32 result_u32(result.rows(), result.cols());
+    for (int i = 0; i < result.rows(); ++i) {
+        for (int j = 0; j < result.cols(); ++j) {
+            result_u32.data()(i, j) = static_cast<uint32_t>(std::max(0.0f, result(i, j)));
+        }
+    }
+    
+    return result_u32;
 }
 
 cv::Mat HDRDurandToneMappingHybrid::execute_halide_opencl() {
     // For now, fall back to CPU implementation
-    return execute_opencv_cpu();
+    return execute_halide_cpu();
 }
 
 hdr_isp::EigenImageU32 HDRDurandToneMappingHybrid::execute_eigen_halide_opencl() {
     // For now, fall back to CPU implementation
-    return execute_eigen_opencv_cpu();
+    return execute_eigen_halide_cpu();
 }
 
-// Halide-specific implementations (simplified)
+// Halide-specific implementations with actual Durand algorithm
 Halide::Buffer<float> HDRDurandToneMappingHybrid::tone_mapping_halide_cpu(const Halide::Buffer<float>& input) {
-    // Simplified implementation - just return input for now
-    return input;
+    int width = input.width();
+    int height = input.height();
+    
+    // Create output buffer
+    Halide::Buffer<float> output(width, height);
+    
+    // Apply Durand algorithm steps
+    Halide::Buffer<float> log_luminance = log_domain_conversion_halide(input);
+    Halide::Buffer<float> base_layer = bilateral_filter_halide(log_luminance, sigma_color_, sigma_space_);
+    Halide::Buffer<float> detail_layer = log_luminance - base_layer;
+    Halide::Buffer<float> compressed_base = base_layer / contrast_factor_;
+    Halide::Buffer<float> log_output = compressed_base + detail_layer;
+    output = exponential_conversion_halide(log_output);
+    
+    return output;
 }
 
 Halide::Buffer<float> HDRDurandToneMappingHybrid::tone_mapping_halide_opencl(const Halide::Buffer<float>& input) {
-    // Simplified implementation - just return input for now
-    return input;
+    // For now, fall back to CPU implementation
+    return tone_mapping_halide_cpu(input);
 }
 
 Halide::Buffer<float> HDRDurandToneMappingHybrid::bilateral_filter_halide(const Halide::Buffer<float>& input, float sigma_color, float sigma_space) {
-    // Simplified implementation - just return input for now
-    return input;
+    int width = input.width();
+    int height = input.height();
+    
+    // Create output buffer
+    Halide::Buffer<float> output(width, height);
+    
+    // Apply bilateral filtering using Halide
+    Halide::Func bilateral_func = bilateral_filter_halide_func(input, sigma_color, sigma_space);
+    bilateral_func.realize(output);
+    
+    return output;
 }
 
-// Durand algorithm Halide functions (simplified)
+// Durand algorithm Halide functions with actual implementation
 Halide::Func HDRDurandToneMappingHybrid::apply_durand_algorithm_halide(const Halide::Buffer<float>& input) {
     Halide::Var x, y;
-    Halide::Func result(x, y) = input(x, y);
+    
+    // Convert to log domain
+    Halide::Func log_luminance;
+    log_luminance(x, y) = Halide::log(input(x, y) + 1e-6f) / std::log(10.0f);
+    
+    // Apply bilateral filter for base layer
+    Halide::Func base_layer = bilateral_filter_halide_func(log_luminance, sigma_color_, sigma_space_);
+    
+    // Extract detail layer
+    Halide::Func detail_layer;
+    detail_layer(x, y) = log_luminance(x, y) - base_layer(x, y);
+    
+    // Compress base layer
+    Halide::Func compressed_base;
+    compressed_base(x, y) = base_layer(x, y) / contrast_factor_;
+    
+    // Recombine layers
+    Halide::Func log_output;
+    log_output(x, y) = compressed_base(x, y) + detail_layer(x, y);
+    
+    // Convert back from log domain
+    Halide::Func result;
+    result(x, y) = Halide::exp(log_output(x, y) * std::log(10.0f));
+    
     return result;
 }
 
 Halide::Func HDRDurandToneMappingHybrid::log_domain_conversion_halide(const Halide::Buffer<float>& input) {
     Halide::Var x, y;
-    Halide::Func result(x, y) = input(x, y);
+    Halide::Func result;
+    result(x, y) = Halide::log(input(x, y) + 1e-6f) / std::log(10.0f);
     return result;
 }
 
 Halide::Func HDRDurandToneMappingHybrid::bilateral_filter_halide_func(const Halide::Buffer<float>& input, float sigma_color, float sigma_space) {
     Halide::Var x, y;
-    Halide::Func result(x, y) = input(x, y);
+    
+    // Simplified bilateral filter implementation
+    // In a full implementation, this would include proper spatial and range filtering
+    
+    // For now, use a simple Gaussian approximation
+    Halide::Func result;
+    Halide::RDom r(-2, 5, -2, 5); // 5x5 kernel
+    
+    // Gaussian weights
+    Halide::Expr weight = Halide::exp(-(r.x * r.x + r.y * r.y) / (2 * sigma_space * sigma_space));
+    
+    // Apply weighted average
+    Halide::Expr sum = 0.0f;
+    Halide::Expr total_weight = 0.0f;
+    
+    sum += weight * input(Halide::clamp(x + r.x, 0, input.width() - 1), 
+                         Halide::clamp(y + r.y, 0, input.height() - 1));
+    total_weight += weight;
+    
+    result(x, y) = sum / total_weight;
+    
     return result;
 }
 
 Halide::Func HDRDurandToneMappingHybrid::contrast_compression_halide(const Halide::Buffer<float>& base_layer, float contrast_factor) {
     Halide::Var x, y;
-    Halide::Func result(x, y) = base_layer(x, y);
+    Halide::Func result;
+    result(x, y) = base_layer(x, y) / contrast_factor;
     return result;
 }
 
 Halide::Func HDRDurandToneMappingHybrid::detail_preservation_halide(const Halide::Buffer<float>& log_luminance, const Halide::Buffer<float>& base_layer) {
     Halide::Var x, y;
-    Halide::Func result(x, y) = log_luminance(x, y);
+    Halide::Func result;
+    result(x, y) = log_luminance(x, y) - base_layer(x, y);
     return result;
 }
 
 Halide::Func HDRDurandToneMappingHybrid::exponential_conversion_halide(const Halide::Buffer<float>& log_output) {
     Halide::Var x, y;
-    Halide::Func result(x, y) = log_output(x, y);
+    Halide::Func result;
+    result(x, y) = Halide::exp(log_output(x, y) * std::log(10.0f));
     return result;
 }
 

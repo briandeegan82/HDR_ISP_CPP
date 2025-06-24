@@ -99,6 +99,31 @@ hdr_isp::EigenImage3C GammaCorrection::apply_gamma() {
         }
     }
     
+    // Normalize input to expected range [0, max_val]
+    int max_val = (1 << output_bit_depth_) - 1;
+    float current_max = std::max({result.r().max(), result.g().max(), result.b().max()});
+    float current_min = std::min({result.r().min(), result.g().min(), result.b().min()});
+    
+    std::cout << "Gamma - apply_gamma() - Normalizing from range [" << current_min << ", " << current_max << "] to [0, " << max_val << "]" << std::endl;
+    
+    // Apply normalization if needed
+    if (current_max > 0) {
+        float scale_factor = static_cast<float>(max_val) / current_max;
+        result = result * scale_factor;
+        
+        std::cout << "Gamma - apply_gamma() - Applied scale factor: " << scale_factor << std::endl;
+        
+        // Print sample values after normalization
+        std::cout << "Gamma - apply_gamma() - Sample values after normalization (top-left 3x3):" << std::endl;
+        for (int i = 0; i < std::min(3, rows); ++i) {
+            for (int j = 0; j < std::min(3, cols); ++j) {
+                std::cout << "  [" << i << "," << j << "] R=" << result.r().data()(i, j) 
+                          << " G=" << result.g().data()(i, j) 
+                          << " B=" << result.b().data()(i, j) << std::endl;
+            }
+        }
+    }
+    
     // Apply LUT to each channel
     std::cout << "Gamma - apply_gamma() - Starting pixel processing..." << std::endl;
     for (int i = 0; i < rows; ++i) {
@@ -109,18 +134,21 @@ hdr_isp::EigenImage3C GammaCorrection::apply_gamma() {
             }
             
             // Apply to R channel
-            int r_val = static_cast<int>(result.r().data()(i, j));
-            if (r_val >= 0 && r_val < static_cast<int>(lut.size()))
+            int r_val = static_cast<int>(std::round(result.r().data()(i, j)));
+            r_val = std::max(0, std::min(max_val, r_val)); // Clamp to valid range
+            if (r_val < static_cast<int>(lut.size()))
                 result.r().data()(i, j) = static_cast<float>(lut[r_val]);
             
             // Apply to G channel
-            int g_val = static_cast<int>(result.g().data()(i, j));
-            if (g_val >= 0 && g_val < static_cast<int>(lut.size()))
+            int g_val = static_cast<int>(std::round(result.g().data()(i, j)));
+            g_val = std::max(0, std::min(max_val, g_val)); // Clamp to valid range
+            if (g_val < static_cast<int>(lut.size()))
                 result.g().data()(i, j) = static_cast<float>(lut[g_val]);
             
             // Apply to B channel
-            int b_val = static_cast<int>(result.b().data()(i, j));
-            if (b_val >= 0 && b_val < static_cast<int>(lut.size()))
+            int b_val = static_cast<int>(std::round(result.b().data()(i, j)));
+            b_val = std::max(0, std::min(max_val, b_val)); // Clamp to valid range
+            if (b_val < static_cast<int>(lut.size()))
                 result.b().data()(i, j) = static_cast<float>(lut[b_val]);
         }
     }

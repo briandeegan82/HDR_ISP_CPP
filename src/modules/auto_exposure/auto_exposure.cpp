@@ -25,9 +25,28 @@ int AutoExposure::execute() {
 }
 
 int AutoExposure::get_exposure_feedback() {
+    if (is_debug_) {
+        std::cout << "AutoExposure::get_exposure_feedback - Input image info:" << std::endl;
+        std::cout << "  Channels: " << img_.channels() << std::endl;
+        std::cout << "  Size: " << img_.cols << "x" << img_.rows << std::endl;
+        std::cout << "  Type: " << img_.type() << std::endl;
+        
+        // Print image statistics
+        double min_val, max_val;
+        cv::minMaxLoc(img_, &min_val, &max_val);
+        cv::Scalar mean_val = cv::mean(img_);
+        std::cout << "  Min: " << min_val << ", Mean: " << mean_val << ", Max: " << max_val << std::endl;
+    }
+    
     if (use_eigen_) {
         // Convert image to grayscale using Eigen
         auto [gray_eigen, avg_lum] = get_greyscale_image_eigen(img_);
+        
+        if (is_debug_) {
+            std::cout << "AutoExposure::get_exposure_feedback - Grayscale conversion:" << std::endl;
+            std::cout << "  Average luminance: " << avg_lum << std::endl;
+            std::cout << "  Grayscale image size: " << gray_eigen.cols() << "x" << gray_eigen.rows() << std::endl;
+        }
         
         // Calculate histogram using Eigen
         hdr_isp::EigenImage hist = hdr_isp::EigenImage::Zero(256, 1);
@@ -43,8 +62,20 @@ int AutoExposure::get_exposure_feedback() {
         // Calculate histogram skewness
         double skewness = get_luminance_histogram_skewness_eigen(hist);
         
+        if (is_debug_) {
+            std::cout << "AutoExposure::get_exposure_feedback - Histogram analysis:" << std::endl;
+            std::cout << "  Skewness: " << skewness << std::endl;
+            std::cout << "  Skewness range: " << histogram_skewness_range_ << std::endl;
+        }
+        
         // Determine exposure based on skewness
-        return determine_exposure(skewness);
+        int feedback = determine_exposure(skewness);
+        
+        if (is_debug_) {
+            std::cout << "AutoExposure::get_exposure_feedback - Exposure feedback: " << feedback << std::endl;
+        }
+        
+        return feedback;
     } else {
         // Convert image to grayscale
         cv::Mat gray;
@@ -155,23 +186,36 @@ std::tuple<cv::Mat, double> AutoExposure::get_greyscale_image(const cv::Mat& img
 }
 
 std::tuple<hdr_isp::EigenImage, double> AutoExposure::get_greyscale_image_eigen(const cv::Mat& img) {
-    // Convert to Eigen
-    hdr_isp::EigenImage eigen_img = hdr_isp::opencv_to_eigen(img);
-    
-    // For simplicity, assume single channel input
-    // In a full implementation, you'd handle multi-channel images properly
-    hdr_isp::EigenImage grey_img = eigen_img;
-    
-    // Apply luminance weights (simplified for single channel)
-    // In a real implementation, you'd split channels and apply weights
-    grey_img = grey_img * 0.299f; // Simplified weight application
-    
-    // Clip values to bit depth range
-    float max_val = static_cast<float>((1 << bit_depth_) - 1);
-    grey_img = grey_img.cwiseMax(0.0f).cwiseMin(max_val);
-    
-    // Calculate average luminance
-    double avg_lum = grey_img.data().mean();
-    
-    return {grey_img, avg_lum};
+    // Check if input is 3-channel RGB image
+    if (img.channels() == 3) {
+        // Convert 3-channel RGB to grayscale using proper luminance weights
+        cv::Mat gray;
+        cv::cvtColor(img, gray, cv::COLOR_BGR2GRAY);
+        
+        // Convert to Eigen
+        hdr_isp::EigenImage eigen_img = hdr_isp::opencv_to_eigen(gray);
+        
+        // Clip values to bit depth range
+        float max_val = static_cast<float>((1 << bit_depth_) - 1);
+        eigen_img = eigen_img.cwiseMax(0.0f).cwiseMin(max_val);
+        
+        // Calculate average luminance
+        double avg_lum = eigen_img.data().mean();
+        
+        return {eigen_img, avg_lum};
+    } else if (img.channels() == 1) {
+        // Single channel input - convert directly to Eigen
+        hdr_isp::EigenImage eigen_img = hdr_isp::opencv_to_eigen(img);
+        
+        // Clip values to bit depth range
+        float max_val = static_cast<float>((1 << bit_depth_) - 1);
+        eigen_img = eigen_img.cwiseMax(0.0f).cwiseMin(max_val);
+        
+        // Calculate average luminance
+        double avg_lum = eigen_img.data().mean();
+        
+        return {eigen_img, avg_lum};
+    } else {
+        throw std::runtime_error("AutoExposure::get_greyscale_image_eigen: Unsupported number of channels: " + std::to_string(img.channels()));
+    }
 } 

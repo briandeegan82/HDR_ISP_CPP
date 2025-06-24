@@ -10,4 +10,9 @@ sensor_info:
   range: 4095
   bit_depth: 12
   width: 2592
-  height: 1536 
+  height: 1536
+
+rgb_conversion:
+  is_enable: true
+  is_save: false
+  is_debug: false 
